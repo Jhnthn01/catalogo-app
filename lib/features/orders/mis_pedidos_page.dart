@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:intl/intl.dart'; // Para formatear la fecha
 
 class MisPedidosPage extends StatelessWidget {
   const MisPedidosPage({super.key});
+
   Future<List<Map<String, dynamic>>> _fetchPedidos() async {
     try {
       final user = Supabase.instance.client.auth.currentUser;
       if (user == null) return [];
 
-      // Cambiamos el select para que sea más simple primero y verificar si trae algo
       final response = await Supabase.instance.client
           .from('pedidos')
           .select('''
@@ -30,7 +30,7 @@ class MisPedidosPage extends StatelessWidget {
 
       return List<Map<String, dynamic>>.from(response);
     } catch (e) {
-      print("Error en Mis Pedidos: $e"); // Esto saldrá en tu consola de VS Code
+      debugPrint("Error en Mis Pedidos: $e");
       return [];
     }
   }
@@ -102,11 +102,8 @@ class MisPedidosPage extends StatelessWidget {
                           style: const TextStyle(color: Colors.grey),
                         ),
                       );
-                    }).toList(),
-
-                    // <--- NUEVO: BOTÓN DE CANCELAR ORDEN --->
-                    if (pedido['estado'].toString().toLowerCase() ==
-                        'pendiente')
+                    }),
+                    if (pedido['estado'].toString().toLowerCase() == 'pendiente')
                       Padding(
                         padding: const EdgeInsets.all(16.0),
                         child: SizedBox(
@@ -121,11 +118,10 @@ class MisPedidosPage extends StatelessWidget {
                             ),
                             icon: const Icon(Icons.cancel_outlined, size: 18),
                             label: const Text("CANCELAR PEDIDO"),
-                            onPressed: () =>
-                                _mostrarDialogoConfirmarCancelacion(
-                                  context,
-                                  pedido['id'].toString(),
-                                ),
+                            onPressed: () => _mostrarDialogoConfirmarCancelacion(
+                              context,
+                              pedido['id'].toString(),
+                            ),
                           ),
                         ),
                       ),
@@ -157,7 +153,7 @@ class MisPedidosPage extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
+        color: color.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(5),
       ),
       child: Text(
@@ -224,7 +220,6 @@ class MisPedidosPage extends StatelessWidget {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text("Pedido cancelado correctamente")),
         );
-        // Forzamos el refresco de la pantalla (puedes usar un setState si es StatefulWidget)
       }
     } catch (e) {
       debugPrint("Error al cancelar: $e");

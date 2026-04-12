@@ -1,22 +1,36 @@
-import 'package:catalogo_digital_app/mis_pedidos_page.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter/material.dart';
-import 'perfil_page.dart'; // Asegúrate de crear este archivo
+import 'package:supabase_flutter/supabase_flutter.dart';
 
-class MenuLateral extends StatelessWidget {
+import 'package:catalogo_digital_app/features/inventory/inventario_page.dart';
+import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
+import 'package:catalogo_digital_app/features/profile/perfil_page.dart';
+
+class MenuLateral extends StatefulWidget {
   const MenuLateral({super.key});
+
+  @override
+  State<MenuLateral> createState() => _MenuLateralState();
+}
+
+class _MenuLateralState extends State<MenuLateral> {
+  late final Future<String?> _rolFuture = _getUsuarioRol();
 
   Future<String?> _getUsuarioRol() async {
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return null;
 
-    final data = await Supabase.instance.client
-        .from('perfiles')
-        .select('rol')
-        .eq('id', user.id)
-        .single();
+    try {
+      final data = await Supabase.instance.client
+          .from('perfiles')
+          .select('rol')
+          .eq('id', user.id)
+          .maybeSingle();
 
-    return data['rol'] as String?;
+      return data?['rol'] as String?;
+    } catch (e) {
+      debugPrint('Error cargando rol de perfil: $e');
+      return null;
+    }
   }
 
   @override
@@ -24,22 +38,23 @@ class MenuLateral extends StatelessWidget {
     return Drawer(
       backgroundColor: const Color(0xFF121212),
       child: FutureBuilder<String?>(
-        future: _getUsuarioRol(),
+        future: _rolFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
           }
 
           final rol = snapshot.data;
-          final bool tieneAccesoInventario =
-              rol == 'admin' || rol == 'empleado';
+          final bool tieneAccesoInventario = rol == 'admin' ||
+              rol == 'trabajador' ||
+              rol == 'empleado';
 
           return ListView(
             padding: EdgeInsets.zero,
             children: [
               DrawerHeader(
                 decoration: BoxDecoration(
-                  color: Colors.blue.withOpacity(0.8),
+                  color: Colors.blue.withValues(alpha: 0.8),
                   image: const DecorationImage(
                     image: NetworkImage('https://via.placeholder.com/350x150'),
                     fit: BoxFit.cover,
@@ -65,8 +80,6 @@ class MenuLateral extends StatelessWidget {
                   ],
                 ),
               ),
-
-              // 1. MI CUENTA / PERFIL (En primer lugar)
               ListTile(
                 leading: const Icon(
                   Icons.manage_accounts,
@@ -84,21 +97,18 @@ class MenuLateral extends StatelessWidget {
                   style: TextStyle(color: Colors.grey, fontSize: 11),
                 ),
                 onTap: () {
-                  Navigator.pop(context); // Cierra el drawer
+                  Navigator.pop(context);
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const PerfilPage()),
+                    MaterialPageRoute(
+                        builder: (context) => const PerfilPage()),
                   );
                 },
               ),
-
-              // LÍNEA DIVISORIA DE SECCIÓN
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 15.0),
                 child: Divider(color: Colors.white24, thickness: 1),
               ),
-
-              // 2. CATÁLOGO
               ListTile(
                 leading: const Icon(Icons.storefront, color: Colors.white70),
                 title: const Text(
@@ -111,8 +121,6 @@ class MenuLateral extends StatelessWidget {
                   (route) => false,
                 ),
               ),
-
-              // 3. NUEVA OPCIÓN: MIS PEDIDOS
               ListTile(
                 leading: const Icon(
                   Icons.shopping_bag_outlined,
@@ -123,7 +131,7 @@ class MenuLateral extends StatelessWidget {
                   style: TextStyle(color: Colors.white),
                 ),
                 onTap: () {
-                  Navigator.pop(context); // Cerrar drawer
+                  Navigator.pop(context);
                   Navigator.push(
                     context,
                     MaterialPageRoute(
@@ -132,8 +140,6 @@ class MenuLateral extends StatelessWidget {
                   );
                 },
               ),
-
-              // 4. INVENTARIO (Solo para Admin/Empleado)
               if (tieneAccesoInventario)
                 ListTile(
                   leading: const Icon(
@@ -144,16 +150,17 @@ class MenuLateral extends StatelessWidget {
                     'Inventario',
                     style: TextStyle(color: Colors.white),
                   ),
-                  onTap: () => Navigator.pushNamedAndRemoveUntil(
-                    context,
-                    '/',
-                    (route) => false,
-                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const InventarioPage(),
+                      ),
+                    );
+                  },
                 ),
-
               const Divider(color: Colors.white10),
-
-              // CERRAR SESIÓN
               ListTile(
                 leading: const Icon(Icons.logout, color: Colors.redAccent),
                 title: const Text(

@@ -31,7 +31,6 @@ class _PerfilPageState extends State<PerfilPage> {
 
         setState(() {
           _nombreController.text = data['nombre'] ?? '';
-          // Cargamos el nuevo campo 'telefono'
           _telefonoController.text = data['telefono'] ?? '';
         });
       } catch (e) {
@@ -45,13 +44,10 @@ class _PerfilPageState extends State<PerfilPage> {
     try {
       final userId = Supabase.instance.client.auth.currentUser!.id;
 
-      await Supabase.instance.client
-          .from('perfiles')
-          .update({
-            'nombre': _nombreController.text,
-            'telefono': _telefonoController.text, // Guardamos el teléfono
-          })
-          .eq('id', userId);
+      await Supabase.instance.client.from('perfiles').update({
+        'nombre': _nombreController.text,
+        'telefono': _telefonoController.text,
+      }).eq('id', userId);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -59,9 +55,9 @@ class _PerfilPageState extends State<PerfilPage> {
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text("Error al guardar: $e")));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Error al guardar: $e")),
+      );
     } finally {
       setState(() => _cargando = false);
     }
@@ -90,7 +86,7 @@ class _PerfilPageState extends State<PerfilPage> {
             const SizedBox(height: 20),
             TextField(
               controller: _telefonoController,
-              keyboardType: TextInputType.phone, // Muestra el teclado numérico
+              keyboardType: TextInputType.phone,
               style: const TextStyle(color: Colors.white),
               decoration: InputDecoration(
                 labelText: "Teléfono Celular",

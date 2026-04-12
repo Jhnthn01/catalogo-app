@@ -18,20 +18,16 @@ class _AuthPageState extends State<AuthPage> {
     setState(() => _loading = true);
     try {
       if (_isLogin) {
-        // LOGIN
         await Supabase.instance.client.auth.signInWithPassword(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
       } else {
-        // REGISTRO SIN CONFIRMACIÓN
         final response = await Supabase.instance.client.auth.signUp(
           email: _emailController.text.trim(),
           password: _passwordController.text.trim(),
         );
 
-        // Si el registro fue exitoso y no hay sesión activa (a veces ocurre),
-        // forzamos el login inmediato.
         if (response.user != null && response.session == null) {
           await Supabase.instance.client.auth.signInWithPassword(
             email: _emailController.text.trim(),
@@ -49,14 +45,11 @@ class _AuthPageState extends State<AuthPage> {
         }
       }
 
-      // Si llegamos aquí sin errores, navegamos al catálogo
       if (mounted) {
-        // Un pequeño retraso de milisegundos ayuda a que la sesión se guarde bien
         await Future.delayed(Duration.zero);
         Navigator.pushReplacementNamed(context, '/');
       }
     } on AuthException catch (e) {
-      // Capturamos el error (ej: contraseña muy corta, email inválido)
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.message), backgroundColor: Colors.red),

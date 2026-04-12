@@ -1,13 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'menu_lateral.dart';
-import 'cart_service.dart';
-import 'carrito_page.dart';
+
+import 'package:catalogo_digital_app/features/cart/carrito_page.dart';
+import 'package:catalogo_digital_app/services/cart_service.dart';
+import 'package:catalogo_digital_app/widgets/menu_lateral.dart';
+
+enum DetalleProductoOrigen { catalogo, inventario }
 
 class DetalleProductoPage extends StatefulWidget {
   final Map<String, dynamic> producto;
+  final DetalleProductoOrigen origen;
 
-  const DetalleProductoPage({super.key, required this.producto});
+  const DetalleProductoPage({
+    super.key,
+    required this.producto,
+    this.origen = DetalleProductoOrigen.catalogo,
+  });
 
   @override
   State<DetalleProductoPage> createState() => _DetalleProductoPageState();
@@ -85,32 +93,37 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
   @override
   Widget build(BuildContext context) {
     bool esPersonal = (userRol == 'admin' || userRol == 'trabajador');
+    final String tooltipAtras =
+        widget.origen == DetalleProductoOrigen.inventario
+            ? 'Volver al inventario'
+            : 'Volver al catálogo';
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       drawer: const MenuLateral(),
       appBar: AppBar(
+        leading: IconButton(
+          tooltip: tooltipAtras,
+          icon: const Icon(Icons.arrow_back, color: Colors.white),
+          onPressed: () => Navigator.of(context).pop(),
+        ),
         title: const Text("Detalle", style: TextStyle(fontSize: 18)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
-          // SECCIÓN DE ACCIONES DINÁMICAS (Solo Admin/Trabajador)
           if (esPersonal)
             Row(
               children: [
                 const Text("Editar", style: TextStyle(fontSize: 12)),
                 Switch(
                   value: _modoEdicion,
-                  activeColor: Colors.blue,
+                  activeThumbColor: Colors.blue,
                   onChanged: (val) => setState(() => _modoEdicion = val),
                 ),
               ],
             ),
-
-          // BOTÓN DEL CARRITO CON ESCUCHADOR DE ESTADO
           ValueListenableBuilder<int>(
-            valueListenable:
-                CartService().itemsCountNotifier, // Escucha el contador
+            valueListenable: CartService().itemsCountNotifier,
             builder: (context, count, child) {
               return Stack(
                 alignment: Alignment.center,
@@ -127,7 +140,6 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                       ),
                     ),
                   ),
-                  // El indicador solo aparece si el contador es mayor a 0
                   if (count > 0)
                     Positioned(
                       right: 8,
@@ -172,7 +184,6 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
             ),
             const SizedBox(height: 20),
             _buildTextField("SKU", _skuController, enabled: false),
-
             const SizedBox(height: 20),
             const Text(
               "STOCK POR TIENDA",
@@ -185,23 +196,19 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                 style: TextStyle(color: Colors.white54),
               )
             else
-              ..._stocks
-                  .map(
-                    (s) => Padding(
-                      padding: const EdgeInsets.only(bottom: 8.0),
-                      child: _buildTextField(
-                        "Tienda: ${s['tiendas']['nombre']}",
-                        TextEditingController(text: s['stock'].toString()),
-                        enabled: false,
-                      ),
-                    ),
-                  )
-                  .toList(),
-
+              ..._stocks.map(
+                (s) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8.0),
+                  child: _buildTextField(
+                    "Tienda: ${s['tiendas']['nombre']}",
+                    TextEditingController(text: s['stock'].toString()),
+                    enabled: false,
+                  ),
+                ),
+              ),
             const SizedBox(height: 20),
             if (esPersonal)
               _buildTextField("COSTO", _costoController, enabled: _modoEdicion),
-
             const SizedBox(height: 20),
             _buildTextField(
               "PRECIO VENTA PÚBLICO",
@@ -209,9 +216,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
               enabled: _modoEdicion,
               onChanged: (v) => _calcularTotal(),
             ),
-
             const Divider(height: 40, color: Colors.white10),
-
             const Text(
               "COMPRAS / PEDIDOS",
               style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
@@ -268,7 +273,6 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                 ],
               ),
             ),
-
             const SizedBox(height: 20),
             _buildTextField(
               "SUBTOTAL",
@@ -277,9 +281,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
               ),
               enabled: false,
             ),
-
             const SizedBox(height: 40),
-
             SizedBox(
               width: double.infinity,
               child: _modoEdicion && userRol == 'admin'
@@ -300,27 +302,21 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                       ),
                       onPressed: _cantidadAReservar > 0
                           ? () {
-                              // 1. Agregamos el producto al servicio
                               CartService().agregarProducto(
                                 widget.producto,
                                 _cantidadAReservar,
                               );
-
-                              // 2. Mostramos el mensaje con el botón de "VER"
                               ScaffoldMessenger.of(context).showSnackBar(
                                 SnackBar(
                                   content: Text(
                                     "¡${_cantidadAReservar}x ${widget.producto['descripcion_1']} añadido!",
                                   ),
                                   backgroundColor: Colors.green.shade800,
-                                  duration: const Duration(
-                                    seconds: 3,
-                                  ), // Tiempo que dura el mensaje
+                                  duration: const Duration(seconds: 3),
                                   action: SnackBarAction(
                                     label: "VER CARRITO",
                                     textColor: Colors.white,
                                     onPressed: () {
-                                      // Navegamos a la página del carrito
                                       Navigator.push(
                                         context,
                                         MaterialPageRoute(
@@ -346,20 +342,16 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
 
   Future<void> _guardarCambios() async {
     try {
-      await Supabase.instance.client
-          .from('productos')
-          .update({
-            'descripcion_1': _nameController.text,
-            'precio_venta': double.tryParse(_precioVentaController.text),
-            'costo': double.tryParse(_costoController.text),
-          })
-          .eq('id', widget.producto['id']);
+      await Supabase.instance.client.from('productos').update({
+        'descripcion_1': _nameController.text,
+        'precio_venta': double.tryParse(_precioVentaController.text),
+        'costo': double.tryParse(_costoController.text),
+      }).eq('id', widget.producto['id']);
 
       if (mounted) {
         setState(() => _modoEdicion = false);
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(const SnackBar(content: Text("Actualizado con éxito")));
+        ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text("Actualizado con éxito")));
       }
     } catch (e) {
       debugPrint("Error: $e");

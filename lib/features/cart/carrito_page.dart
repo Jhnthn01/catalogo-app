@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'cart_service.dart';
-import 'resumen_pedido_page.dart';
+
+import 'package:catalogo_digital_app/features/cart/resumen_pedido_page.dart';
+import 'package:catalogo_digital_app/services/cart_service.dart';
 
 class CarritoPage extends StatefulWidget {
   const CarritoPage({super.key});
@@ -15,60 +16,57 @@ class _CarritoPageState extends State<CarritoPage> {
 
   void _refrescar() => setState(() {});
 
-Future<void> _confirmarPedido() async {
-  if (cart.items.isEmpty) return;
+  Future<void> _confirmarPedido() async {
+    if (cart.items.isEmpty) return;
 
-  try {
-    final user = Supabase.instance.client.auth.currentUser;
-    
-    // 1. Obtenemos los datos actuales del perfil para el resumen
-    final perfilData = await Supabase.instance.client
-        .from('perfiles')
-        .select()
-        .eq('id', user!.id)
-        .single();
+    try {
+      final user = Supabase.instance.client.auth.currentUser;
 
-    // 2. Registramos el pedido en la base de datos (tu código actual)
-    final pedido = await Supabase.instance.client.from('pedidos').insert({
-      'usuario_id': user.id,
-      'total': cart.total,
-      'estado': 'pendiente',
-    }).select().single();
+      final perfilData = await Supabase.instance.client
+          .from('perfiles')
+          .select()
+          .eq('id', user!.id)
+          .single();
 
-    final detalles = cart.items.map((item) => {
-      'pedido_id': pedido['id'],
-      'producto_id': item.id,
-      'cantidad': item.cantidad,
-      'precio_unitario': item.precio,
-    }).toList();
+      final pedido = await Supabase.instance.client.from('pedidos').insert({
+        'usuario_id': user.id,
+        'total': cart.total,
+        'estado': 'pendiente',
+      }).select().single();
 
-    await Supabase.instance.client.from('detalles_pedido').insert(detalles);
+      final detalles = cart.items
+          .map((item) => {
+                'pedido_id': pedido['id'],
+                'producto_id': item.id,
+                'cantidad': item.cantidad,
+                'precio_unitario': item.precio,
+              })
+          .toList();
 
-    // Guardamos copias locales antes de limpiar el carrito
-    final itemsResumen = List<CartItem>.from(cart.items);
-    final totalResumen = cart.total;
+      await Supabase.instance.client.from('detalles_pedido').insert(detalles);
 
-    // 3. Limpiamos el carrito
-    cart.limpiar();
+      final itemsResumen = List<CartItem>.from(cart.items);
+      final totalResumen = cart.total;
 
-    // 4. Navegamos al resumen
-    if (mounted) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => ResumenPedidoPage(
-            datosUsuario: perfilData,
-            total: totalResumen,
-            items: itemsResumen,
+      cart.limpiar();
+
+      if (mounted) {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ResumenPedidoPage(
+              datosUsuario: perfilData,
+              total: totalResumen,
+              items: itemsResumen,
+            ),
           ),
-        ),
-      );
+        );
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Error: $e")));
     }
-  } catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
   }
-}
-
 
   @override
   Widget build(BuildContext context) {
@@ -104,9 +102,11 @@ Future<void> _confirmarPedido() async {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.remove_shopping_cart_outlined, size: 80, color: Colors.grey.shade800),
+          Icon(Icons.remove_shopping_cart_outlined,
+              size: 80, color: Colors.grey.shade800),
           const SizedBox(height: 15),
-          const Text("Tu carrito está vacío", style: TextStyle(color: Colors.grey, fontSize: 18)),
+          const Text("Tu carrito está vacío",
+              style: TextStyle(color: Colors.grey, fontSize: 18)),
         ],
       ),
     );
@@ -122,29 +122,36 @@ Future<void> _confirmarPedido() async {
       ),
       child: Row(
         children: [
-          // Info del producto
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(item.nombre, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                Text(item.nombre,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16)),
                 const SizedBox(height: 5),
-                Text("\$${item.precio.toStringAsFixed(2)} c/u", style: const TextStyle(color: Colors.blue, fontSize: 14)),
+                Text("\$${item.precio.toStringAsFixed(2)} c/u",
+                    style: const TextStyle(color: Colors.blue, fontSize: 14)),
               ],
             ),
           ),
-          
-          // Controles de cantidad
           Row(
             children: [
               IconButton(
-                icon: const Icon(Icons.remove_circle_outline, color: Colors.grey),
+                icon: const Icon(Icons.remove_circle_outline,
+                    color: Colors.grey),
                 onPressed: () {
                   cart.actualizarCantidad(item.id, item.cantidad - 1);
                   _refrescar();
                 },
               ),
-              Text("${item.cantidad}", style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+              Text("${item.cantidad}",
+                  style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold)),
               IconButton(
                 icon: const Icon(Icons.add_circle_outline, color: Colors.blue),
                 onPressed: () {
@@ -152,7 +159,6 @@ Future<void> _confirmarPedido() async {
                   _refrescar();
                 },
               ),
-              // Botón eliminar
               IconButton(
                 icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
                 onPressed: () {
@@ -181,9 +187,15 @@ Future<void> _confirmarPedido() async {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Text("Total Estimado", style: TextStyle(color: Colors.grey, fontSize: 16)),
-                Text("\$${cart.total.toStringAsFixed(2)}", 
-                  style: const TextStyle(color: Colors.blue, fontSize: 24, fontWeight: FontWeight.bold)),
+                const Text("Total Estimado",
+                    style: TextStyle(color: Colors.grey, fontSize: 16)),
+                Text(
+                  "\$${cart.total.toStringAsFixed(2)}",
+                  style: const TextStyle(
+                      color: Colors.blue,
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold),
+                ),
               ],
             ),
             const SizedBox(height: 20),
@@ -193,11 +205,17 @@ Future<void> _confirmarPedido() async {
               child: ElevatedButton(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(15)),
                 ),
                 onPressed: _confirmarPedido,
-                child: const Text("CONFIRMAR MI PEDIDO", 
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                child: const Text(
+                  "CONFIRMAR MI PEDIDO",
+                  style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white),
+                ),
               ),
             ),
           ],
