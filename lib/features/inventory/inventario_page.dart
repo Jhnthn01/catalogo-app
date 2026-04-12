@@ -30,6 +30,8 @@ class _InventarioPageState extends State<InventarioPage> {
   String? _claseFiltro;
   String? _subClaseFiltro;
 
+  final MobileScannerController _scannerController = MobileScannerController();
+
   @override
   void initState() {
     super.initState();

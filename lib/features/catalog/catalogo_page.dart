@@ -33,6 +33,8 @@ class _CatalogoPageState extends State<CatalogoPage> {
   String? _claseFiltro;
   String? _subClaseFiltro;
 
+  final MobileScannerController _scannerController = MobileScannerController();
+
   @override
   void initState() {
     super.initState();
@@ -58,6 +60,7 @@ class _CatalogoPageState extends State<CatalogoPage> {
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
     _searchController.dispose();
+    _scannerController.dispose();
     super.dispose();
   }
 
@@ -261,6 +264,7 @@ class _CatalogoPageState extends State<CatalogoPage> {
           child: Stack(
             children: [
               MobileScanner(
+                controller: _scannerController,
                 onDetect: (capture) {
                   final List<Barcode> barcodes = capture.barcodes;
                   if (barcodes.isNotEmpty) {
@@ -273,6 +277,32 @@ class _CatalogoPageState extends State<CatalogoPage> {
                     _fetchProductos(refresh: true);
                   }
                 },
+              ),
+              Positioned(
+                left: 10,
+                top: 10,
+                child: CircleAvatar(
+                  backgroundColor: Colors.black54,
+                  child: ValueListenableBuilder<MobileScannerState>(
+                    valueListenable: _scannerController,
+                    builder: (context, state, child) {
+                      switch (state.torchState) {
+                        case TorchState.off:
+                          return IconButton(
+                            icon: const Icon(Icons.flash_off, color: Colors.white),
+                            onPressed: () => _scannerController.toggleTorch(),
+                          );
+                        case TorchState.on:
+                          return IconButton(
+                            icon: const Icon(Icons.flash_on, color: Colors.yellow),
+                            onPressed: () => _scannerController.toggleTorch(),
+                          );
+                        default:
+                          return const SizedBox.shrink();
+                      }
+                    },
+                  ),
+                ),
               ),
               Positioned(
                 right: 10,
