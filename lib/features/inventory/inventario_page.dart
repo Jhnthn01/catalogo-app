@@ -23,6 +23,7 @@ class _InventarioPageState extends State<InventarioPage> {
   bool _hasMore = true;
   int _paginaActual = 0;
   final int _tamanhoPagina = 25;
+  int _fetchId = 0;
 
   @override
   void initState() {
@@ -45,17 +46,16 @@ class _InventarioPageState extends State<InventarioPage> {
   }
 
   void _reiniciarLista() {
-    setState(() {
-      _productos.clear();
-      _paginaActual = 0;
-      _hasMore = true;
-      _isLoading = false;
-    });
+    _productos.clear();
+    _paginaActual = 0;
+    _hasMore = true;
+    if (mounted) setState(() {});
   }
 
   Future<void> _cargarMasProductos() async {
     if (!mounted || _isLoading || !_hasMore) return;
 
+    final currentFetchId = ++_fetchId;
     setState(() => _isLoading = true);
 
     try {
@@ -63,12 +63,12 @@ class _InventarioPageState extends State<InventarioPage> {
       final hasta = desde + _tamanhoPagina - 1;
 
       var query = Supabase.instance.client.from('productos').select(
-            'id, sku, descripcion_1, precio_venta, costo, inventario(stock)',
+            'id, sku, upc, alu, descripcion_1, precio_venta, costo, inventario(stock)',
           );
 
       if (_searchQuery.isNotEmpty) {
         query = query.or(
-          'descripcion_1.ilike.%$_searchQuery%,sku.ilike.%$_searchQuery%',
+          'descripcion_1.ilike.%$_searchQuery%,sku.ilike.%$_searchQuery%,upc.ilike.%$_searchQuery%,alu.ilike.%$_searchQuery%',
         );
       }
 
@@ -76,7 +76,7 @@ class _InventarioPageState extends State<InventarioPage> {
           .order('descripcion_1')
           .range(desde, hasta);
 
-      if (!mounted) return;
+      if (!mounted || currentFetchId != _fetchId) return;
 
       setState(() {
         _productos.addAll(List<Map<String, dynamic>>.from(data));
@@ -85,7 +85,7 @@ class _InventarioPageState extends State<InventarioPage> {
         if (data.length < _tamanhoPagina) _hasMore = false;
       });
     } catch (e) {
-      if (mounted) {
+      if (mounted && currentFetchId == _fetchId) {
         setState(() => _isLoading = false);
         debugPrint("Error: $e");
       }
@@ -196,6 +196,10 @@ class _InventarioPageState extends State<InventarioPage> {
           onChanged: (val) {
             _searchQuery = val;
             _reiniciarLista();
+            // Evitamos la barrera de _isLoading artificialmente si es un refresh nuevo:
+            if (_isLoading) {
+              setState(() => _isLoading = false);
+            }
             _cargarMasProductos();
           },
           style: const TextStyle(color: Colors.white),

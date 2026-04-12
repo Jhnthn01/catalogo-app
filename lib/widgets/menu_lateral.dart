@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:catalogo_digital_app/features/inventory/inventario_page.dart';
+import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
 import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
 import 'package:catalogo_digital_app/features/profile/perfil_page.dart';
+import 'package:catalogo_digital_app/features/admin/gestion_roles_page.dart';
 
 class MenuLateral extends StatefulWidget {
   const MenuLateral({super.key});
@@ -46,8 +48,8 @@ class _MenuLateralState extends State<MenuLateral> {
 
           final rol = snapshot.data;
           final bool tieneAccesoInventario = rol == 'admin' ||
-              rol == 'trabajador' ||
-              rol == 'empleado';
+              rol == 'gerente' ||
+              rol == 'almacenista';
 
           return ListView(
             padding: EdgeInsets.zero,
@@ -105,6 +107,32 @@ class _MenuLateralState extends State<MenuLateral> {
                   );
                 },
               ),
+              if (rol == 'admin')
+                ListTile(
+                  leading: const Icon(
+                    Icons.admin_panel_settings,
+                    color: Colors.redAccent,
+                  ),
+                  title: const Text(
+                    'Gestión de Roles',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Administrar accesos',
+                    style: TextStyle(color: Colors.grey, fontSize: 11),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => const GestionRolesPage()),
+                    );
+                  },
+                ),
               const Padding(
                 padding: EdgeInsets.symmetric(horizontal: 15.0),
                 child: Divider(color: Colors.white24, thickness: 1),
@@ -156,6 +184,26 @@ class _MenuLateralState extends State<MenuLateral> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => const InventarioPage(),
+                      ),
+                    );
+                  },
+                ),
+              if (tieneAccesoInventario)
+                ListTile(
+                  leading: const Icon(
+                    Icons.upload_file,
+                    color: Colors.white70,
+                  ),
+                  title: const Text(
+                    'Carga Masiva (CSV)',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const CargaMasivaPage(),
                       ),
                     );
                   },
