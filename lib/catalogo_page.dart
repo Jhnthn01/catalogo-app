@@ -3,6 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart'; // Importante
 import 'detalle_producto_page.dart';
 import 'menu_lateral.dart';
+import 'cart_service.dart';
+import 'carrito_page.dart';
 
 class CatalogoPage extends StatefulWidget {
   const CatalogoPage({super.key});
@@ -61,10 +63,55 @@ class _CatalogoPageState extends State<CatalogoPage> {
       backgroundColor: const Color(0xFF121212),
       drawer: const MenuLateral(),
       appBar: AppBar(
-        title: const Text("Catálogo App", style: TextStyle(fontWeight: FontWeight.bold)),
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-      ),
+  title: const Text("Catálogo de Productos"),
+  backgroundColor: const Color(0xFF121212),
+  actions: [
+    // El "escuchador" detecta cambios desde cualquier parte de la app
+    ValueListenableBuilder<int>(
+      valueListenable: CartService().itemsCountNotifier,
+      builder: (context, count, child) {
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.shopping_cart_outlined, color: Colors.white),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const CarritoPage()),
+              ),
+            ),
+            if (count > 0)
+              Positioned(
+                right: 8,
+                top: 8,
+                child: Container(
+                  padding: const EdgeInsets.all(2),
+                  decoration: BoxDecoration(
+                    color: Colors.red,
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  constraints: const BoxConstraints(
+                    minWidth: 16,
+                    minHeight: 16,
+                  ),
+                  child: Text(
+                    '$count',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 9,
+                      fontWeight: FontWeight.bold,
+                    ),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    ),
+    const SizedBox(width: 8),
+  ],
+),
       body: Column(
         children: [
           // --- SECCIÓN DINÁMICA: BUSCADOR O CÁMARA ---
@@ -176,44 +223,157 @@ class _CatalogoPageState extends State<CatalogoPage> {
     );
   }
 
-  Widget _buildProductCard(dynamic prod) {
-    return GestureDetector(
-      onTap: () => Navigator.push(
-        context,
-        MaterialPageRoute(builder: (context) => DetalleProductoPage(producto: prod)),
-      ),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white10),
-        ),
+Widget _buildProductCard(Map<String, dynamic> producto) {
+  return Card(
+    color: const Color(0xFF1E1E1E),
+    elevation: 4,
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(15),
+      onTap: () {
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => DetalleProductoPage(producto: producto),
+          ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.all(12.0),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  color: Color(0xFF2A2A2A),
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                ),
-                child: const Icon(Icons.handyman, color: Colors.blueGrey, size: 40),
+            // Espacio para imagen (Placeholder si no hay)
+            Container(
+              height: 100,
+              width: double.infinity,
+              decoration: BoxDecoration(
+                color: Colors.black26,
+                borderRadius: BorderRadius.circular(10),
               ),
+              child: const Icon(Icons.inventory_2_outlined, color: Colors.white24, size: 40),
             ),
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(prod['descripcion_1'] ?? 'Sin nombre', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold), maxLines: 1),
-                  Text("SKU: ${prod['sku']}", style: const TextStyle(color: Colors.grey, fontSize: 11)),
-                  Text("\$ ${prod['precio_venta']}", style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-                ],
-              ),
+            const SizedBox(height: 10),
+            Text(
+              producto['descripcion_1'] ?? 'Sin nombre',
+              style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const Spacer(), // Empuja el precio y botón al fondo
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text("Precio", style: TextStyle(color: Colors.grey, fontSize: 10)),
+                    Text(
+                      "\$${producto['precio_venta']}",
+                      style: const TextStyle(color: Colors.blue, fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                  ],
+                ),
+                
+                // BOTÓN DE AÑADIR RÁPIDO
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () => _mostrarDialogoCantidad(context, producto),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: Colors.blue.withOpacity(0.3)),
+                      ),
+                      child: const Icon(
+                        Icons.add_shopping_cart_rounded,
+                        color: Colors.blue,
+                        size: 22,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
+
+  void _mostrarDialogoCantidad(BuildContext context, Map<String, dynamic> producto) {
+  int cantidad = 1; // Empezamos con 1 por defecto
+
+  showDialog(
+    context: context,
+    builder: (context) {
+      return StatefulBuilder( // Usamos StatefulBuilder para que el contador funcione dentro del dialog
+        builder: (context, setDialogState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+            title: Text(
+              producto['descripcion_1'],
+              style: const TextStyle(color: Colors.white, fontSize: 16),
+              textAlign: TextAlign.center,
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text("Selecciona la cantidad", style: TextStyle(color: Colors.grey)),
+                const SizedBox(height: 20),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
+                      onPressed: () {
+                        if (cantidad > 1) setDialogState(() => cantidad--);
+                      },
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 20),
+                      child: Text(
+                        "$cantidad",
+                        style: const TextStyle(color: Colors.white, fontSize: 24, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.add_circle_outline, color: Colors.greenAccent),
+                      onPressed: () => setDialogState(() => cantidad++),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: const Text("CANCELAR", style: TextStyle(color: Colors.grey)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                onPressed: () {
+                  CartService().agregarProducto(producto, cantidad);
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text("$cantidad x ${producto['descripcion_1']} añadido"),
+                      backgroundColor: Colors.blueGrey.shade900,
+                    ),
+                  );
+                },
+                child: const Text("AÑADIR"),
+              ),
+            ],
+          );
+        },
+      );
+    },
+  );
+}
 }

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'menu_lateral.dart';
+import 'cart_service.dart';
+import 'carrito_page.dart';
 
 class DetalleProductoPage extends StatefulWidget {
   final Map<String, dynamic> producto;
@@ -21,14 +23,14 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
   double _totalVenta = 0.0;
   List<dynamic> _stocks = [];
   String userRol = 'cliente';
-  
-  // NUEVA VARIABLE: Controla si se puede editar o no
   bool _modoEdicion = false;
 
   @override
   void initState() {
     super.initState();
-    _nameController = TextEditingController(text: widget.producto['descripcion_1']);
+    _nameController = TextEditingController(
+      text: widget.producto['descripcion_1'],
+    );
     _skuController = TextEditingController(text: widget.producto['sku']);
     _costoController = TextEditingController(
       text: widget.producto['costo']?.toString() ?? '0.0',
@@ -36,7 +38,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     _precioVentaController = TextEditingController(
       text: widget.producto['precio_venta']?.toString() ?? '0.0',
     );
-    
+
     _checkUserRole();
     _fetchStock();
     _calcularTotal();
@@ -88,11 +90,11 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
       backgroundColor: const Color(0xFF121212),
       drawer: const MenuLateral(),
       appBar: AppBar(
-        title: const Text("Detalle de Producto"),
+        title: const Text("Detalle", style: TextStyle(fontSize: 18)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
-          // SWITCH DE MODO EDICIÓN (Solo para Admin/Empleado)
+          // SECCIÓN DE ACCIONES DINÁMICAS (Solo Admin/Trabajador)
           if (esPersonal)
             Row(
               children: [
@@ -100,12 +102,62 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                 Switch(
                   value: _modoEdicion,
                   activeColor: Colors.blue,
-                  onChanged: (val) {
-                    setState(() => _modoEdicion = val);
-                  },
+                  onChanged: (val) => setState(() => _modoEdicion = val),
                 ),
               ],
             ),
+
+          // BOTÓN DEL CARRITO CON ESCUCHADOR DE ESTADO
+          ValueListenableBuilder<int>(
+            valueListenable:
+                CartService().itemsCountNotifier, // Escucha el contador
+            builder: (context, count, child) {
+              return Stack(
+                alignment: Alignment.center,
+                children: [
+                  IconButton(
+                    icon: const Icon(
+                      Icons.shopping_cart_outlined,
+                      color: Colors.white,
+                    ),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const CarritoPage(),
+                      ),
+                    ),
+                  ),
+                  // El indicador solo aparece si el contador es mayor a 0
+                  if (count > 0)
+                    Positioned(
+                      right: 8,
+                      top: 8,
+                      child: Container(
+                        padding: const EdgeInsets.all(2),
+                        decoration: BoxDecoration(
+                          color: Colors.red,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        constraints: const BoxConstraints(
+                          minWidth: 16,
+                          minHeight: 16,
+                        ),
+                        child: Text(
+                          '$count',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+          const SizedBox(width: 8),
         ],
       ),
       body: SingleChildScrollView(
@@ -113,45 +165,62 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // El nombre solo es editable si el switch está ON
-            _buildTextField("Nombre del Producto", _nameController, enabled: _modoEdicion),
+            _buildTextField(
+              "Nombre del Producto",
+              _nameController,
+              enabled: _modoEdicion,
+            ),
             const SizedBox(height: 20),
-            _buildTextField("SKU", _skuController, enabled: false), // SKU nunca se edita por seguridad
-            
-            const SizedBox(height: 20),
-            const Text("STOCK POR TIENDA", style: TextStyle(color: Colors.grey, fontSize: 12)),
-            const SizedBox(height: 8),
-            ..._stocks.map((s) => Padding(
-              padding: const EdgeInsets.only(bottom: 8.0),
-              child: _buildTextField(
-                "Tienda: ${s['tiendas']['nombre']}", 
-                TextEditingController(text: s['stock'].toString()),
-                enabled: false // El stock se edita desde otra lógica de inventario
-              ),
-            )).toList(),
+            _buildTextField("SKU", _skuController, enabled: false),
 
             const SizedBox(height: 20),
-            
-            // Costo visible para personal, editable solo en modo edición
+            const Text(
+              "STOCK POR TIENDA",
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+            const SizedBox(height: 8),
+            if (_stocks.isEmpty)
+              const Text(
+                "Consultando stock...",
+                style: TextStyle(color: Colors.white54),
+              )
+            else
+              ..._stocks
+                  .map(
+                    (s) => Padding(
+                      padding: const EdgeInsets.only(bottom: 8.0),
+                      child: _buildTextField(
+                        "Tienda: ${s['tiendas']['nombre']}",
+                        TextEditingController(text: s['stock'].toString()),
+                        enabled: false,
+                      ),
+                    ),
+                  )
+                  .toList(),
+
+            const SizedBox(height: 20),
             if (esPersonal)
               _buildTextField("COSTO", _costoController, enabled: _modoEdicion),
-            
+
             const SizedBox(height: 20),
-            
-            // Precio de venta editable solo en modo edición
             _buildTextField(
-              "PRECIO VENTA PÚBLICO", 
+              "PRECIO VENTA PÚBLICO",
               _precioVentaController,
               enabled: _modoEdicion,
               onChanged: (v) => _calcularTotal(),
             ),
-            
+
             const Divider(height: 40, color: Colors.white10),
 
-            // SECCIÓN DE COMPRA/CARRITO (Siempre habilitada para todos)
-            const Text("COMPRAS / PEDIDOS", style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
+            const Text(
+              "COMPRAS / PEDIDOS",
+              style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 15),
-            const Text("CANTIDAD A AÑADIR", style: TextStyle(color: Colors.grey, fontSize: 12)),
+            const Text(
+              "CANTIDAD A AÑADIR",
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
             const SizedBox(height: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
@@ -162,11 +231,21 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text("$_cantidadAReservar", style: const TextStyle(fontSize: 18, color: Colors.white, fontWeight: FontWeight.bold)),
+                  Text(
+                    "$_cantidadAReservar",
+                    style: const TextStyle(
+                      fontSize: 18,
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   Row(
                     children: [
                       IconButton(
-                        icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
+                        icon: const Icon(
+                          Icons.remove_circle_outline,
+                          color: Colors.redAccent,
+                        ),
                         onPressed: () {
                           if (_cantidadAReservar > 0) {
                             setState(() => _cantidadAReservar--);
@@ -175,7 +254,10 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                         },
                       ),
                       IconButton(
-                        icon: const Icon(Icons.add_circle_outline, color: Colors.greenAccent),
+                        icon: const Icon(
+                          Icons.add_circle_outline,
+                          color: Colors.greenAccent,
+                        ),
                         onPressed: () {
                           setState(() => _cantidadAReservar++);
                           _calcularTotal();
@@ -189,31 +271,72 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
 
             const SizedBox(height: 20),
             _buildTextField(
-              "TOTAL PRODUCTOS",
-              TextEditingController(text: "\$ ${_totalVenta.toStringAsFixed(2)}"),
+              "SUBTOTAL",
+              TextEditingController(
+                text: "\$ ${_totalVenta.toStringAsFixed(2)}",
+              ),
               enabled: false,
             ),
 
             const SizedBox(height: 40),
-            
-            // BOTONES DE ACCIÓN
+
             SizedBox(
               width: double.infinity,
-              child: _modoEdicion && userRol == 'admin' 
-                ? ElevatedButton(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, padding: const EdgeInsets.all(15)),
-                    onPressed: _guardarCambios,
-                    child: const Text("GUARDAR CAMBIOS EN INVENTARIO"),
-                  )
-                : ElevatedButton.icon(
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.green, padding: const EdgeInsets.all(15)),
-                    onPressed: _cantidadAReservar > 0 ? () {
-                      // Lógica de añadir al carrito
-                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Añadido al carrito")));
-                    } : null,
-                    icon: const Icon(Icons.shopping_cart),
-                    label: const Text("AÑADIR AL CARRITO"),
-                  ),
+              child: _modoEdicion && userRol == 'admin'
+                  ? ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        padding: const EdgeInsets.all(15),
+                      ),
+                      onPressed: _guardarCambios,
+                      child: const Text("GUARDAR CAMBIOS"),
+                    )
+                  : ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: _cantidadAReservar > 0
+                            ? Colors.green
+                            : Colors.grey,
+                        padding: const EdgeInsets.all(15),
+                      ),
+                      onPressed: _cantidadAReservar > 0
+                          ? () {
+                              // 1. Agregamos el producto al servicio
+                              CartService().agregarProducto(
+                                widget.producto,
+                                _cantidadAReservar,
+                              );
+
+                              // 2. Mostramos el mensaje con el botón de "VER"
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    "¡${_cantidadAReservar}x ${widget.producto['descripcion_1']} añadido!",
+                                  ),
+                                  backgroundColor: Colors.green.shade800,
+                                  duration: const Duration(
+                                    seconds: 3,
+                                  ), // Tiempo que dura el mensaje
+                                  action: SnackBarAction(
+                                    label: "VER CARRITO",
+                                    textColor: Colors.white,
+                                    onPressed: () {
+                                      // Navegamos a la página del carrito
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (context) =>
+                                              const CarritoPage(),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ),
+                              );
+                            }
+                          : null,
+                      icon: const Icon(Icons.add_shopping_cart),
+                      label: const Text("AÑADIR AL PEDIDO"),
+                    ),
             ),
           ],
         ),
@@ -221,7 +344,6 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     );
   }
 
-  // Lógica para guardar datos en Supabase
   Future<void> _guardarCambios() async {
     try {
       await Supabase.instance.client
@@ -235,16 +357,21 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
 
       if (mounted) {
         setState(() => _modoEdicion = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Producto actualizado correctamente"))
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text("Actualizado con éxito")));
       }
     } catch (e) {
-      debugPrint("Error al guardar: $e");
+      debugPrint("Error: $e");
     }
   }
 
-  Widget _buildTextField(String label, TextEditingController controller, {bool enabled = true, Function(String)? onChanged}) {
+  Widget _buildTextField(
+    String label,
+    TextEditingController controller, {
+    bool enabled = true,
+    Function(String)? onChanged,
+  }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -258,8 +385,14 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
           decoration: InputDecoration(
             filled: true,
             fillColor: enabled ? Colors.grey.shade900 : Colors.black26,
-            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(8),
+              borderSide: BorderSide.none,
+            ),
+            contentPadding: const EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: 12,
+            ),
           ),
         ),
       ],
