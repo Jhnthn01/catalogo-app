@@ -294,6 +294,7 @@ class _InventarioPageState extends State<InventarioPage> {
         builder: (context) => DetalleProductoPage(
           producto: producto,
           origen: DetalleProductoOrigen.inventario,
+          contextoInventario: true,
         ),
       ),
     );

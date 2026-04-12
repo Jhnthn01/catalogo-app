@@ -11,10 +11,15 @@ class DetalleProductoPage extends StatefulWidget {
   final Map<String, dynamic> producto;
   final DetalleProductoOrigen origen;
 
+  /// Si es true: pantalla de gestión (inventario). Oculta carrito y COMPRAS / PEDIDOS.
+  /// Debe pasarse en [true] desde [InventarioPage]; en catálogo no se pasa (false).
+  final bool contextoInventario;
+
   const DetalleProductoPage({
     super.key,
     required this.producto,
     this.origen = DetalleProductoOrigen.catalogo,
+    this.contextoInventario = false,
   });
 
   @override
@@ -66,15 +71,36 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
 
   Future<void> _checkUserRole() async {
     final user = Supabase.instance.client.auth.currentUser;
-    if (user != null) {
+    if (user == null) return;
+
+    try {
       final data = await Supabase.instance.client
           .from('perfiles')
           .select('rol')
           .eq('id', user.id)
-          .single();
-      setState(() => userRol = data['rol']);
+          .maybeSingle();
+      final rol = data?['rol'] as String? ?? 'cliente';
+      if (!mounted) return;
+      setState(() {
+        userRol = rol;
+        // Desde inventario: pantalla de gestión, no de compra — edición activa para personal de tienda.
+        if (_esPantallaInventario && _rolPuedeGestionarInventario(rol)) {
+          _modoEdicion = true;
+        }
+      });
+    } catch (e) {
+      debugPrint('Error cargando rol: $e');
     }
   }
+
+  bool _rolPuedeGestionarInventario(String rol) {
+    return rol == 'admin' || rol == 'trabajador' || rol == 'empleado';
+  }
+
+  /// Catálogo vs inventario: flag explícito y/o [DetalleProductoOrigen.inventario].
+  bool get _esPantallaInventario =>
+      widget.contextoInventario ||
+      widget.origen == DetalleProductoOrigen.inventario;
 
   void _calcularTotal() {
     double precio = double.tryParse(_precioVentaController.text) ?? 0.0;
@@ -92,11 +118,19 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
 
   @override
   Widget build(BuildContext context) {
-    bool esPersonal = (userRol == 'admin' || userRol == 'trabajador');
+    final bool esPersonal =
+        (userRol == 'admin' || userRol == 'trabajador' || userRol == 'empleado');
+    final bool puedeGestionFicha = _rolPuedeGestionarInventario(userRol);
+    final bool esModoInventario = _esPantallaInventario;
+    final bool mostrarBloquePedidos = !_esPantallaInventario;
+    final bool mostrarSwitchEdicion =
+        esModoInventario ? puedeGestionFicha : esPersonal;
+    final bool mostrarCosto =
+        esModoInventario ? puedeGestionFicha : esPersonal;
     final String tooltipAtras =
-        widget.origen == DetalleProductoOrigen.inventario
-            ? 'Volver al inventario'
-            : 'Volver al catálogo';
+        _esPantallaInventario ? 'Volver al inventario' : 'Volver al catálogo';
+    final String tituloAppBar =
+        esModoInventario ? 'Gestión de producto' : 'Detalle';
 
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
@@ -107,14 +141,19 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
           icon: const Icon(Icons.arrow_back, color: Colors.white),
           onPressed: () => Navigator.of(context).pop(),
         ),
-        title: const Text("Detalle", style: TextStyle(fontSize: 18)),
+        title: Text(tituloAppBar, style: const TextStyle(fontSize: 18)),
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
-          if (esPersonal)
+          if (mostrarSwitchEdicion)
             Row(
               children: [
-                const Text("Editar", style: TextStyle(fontSize: 12)),
+                Text(
+                  esModoInventario
+                      ? (_modoEdicion ? 'Modo edición' : 'Modo lectura')
+                      : 'Editar',
+                  style: const TextStyle(fontSize: 12),
+                ),
                 Switch(
                   value: _modoEdicion,
                   activeThumbColor: Colors.blue,
@@ -122,54 +161,55 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                 ),
               ],
             ),
-          ValueListenableBuilder<int>(
-            valueListenable: CartService().itemsCountNotifier,
-            builder: (context, count, child) {
-              return Stack(
-                alignment: Alignment.center,
-                children: [
-                  IconButton(
-                    icon: const Icon(
-                      Icons.shopping_cart_outlined,
-                      color: Colors.white,
-                    ),
-                    onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const CarritoPage(),
+          if (mostrarBloquePedidos)
+            ValueListenableBuilder<int>(
+              valueListenable: CartService().itemsCountNotifier,
+              builder: (context, count, child) {
+                return Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    IconButton(
+                      icon: const Icon(
+                        Icons.shopping_cart_outlined,
+                        color: Colors.white,
+                      ),
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const CarritoPage(),
+                        ),
                       ),
                     ),
-                  ),
-                  if (count > 0)
-                    Positioned(
-                      right: 8,
-                      top: 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 16,
-                          minHeight: 16,
-                        ),
-                        child: Text(
-                          '$count',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 9,
-                            fontWeight: FontWeight.bold,
+                    if (count > 0)
+                      Positioned(
+                        right: 8,
+                        top: 8,
+                        child: Container(
+                          padding: const EdgeInsets.all(2),
+                          decoration: BoxDecoration(
+                            color: Colors.red,
+                            borderRadius: BorderRadius.circular(10),
                           ),
-                          textAlign: TextAlign.center,
+                          constraints: const BoxConstraints(
+                            minWidth: 16,
+                            minHeight: 16,
+                          ),
+                          child: Text(
+                            '$count',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
                         ),
                       ),
-                    ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(width: 8),
+                  ],
+                );
+              },
+            ),
+          if (mostrarBloquePedidos) const SizedBox(width: 8),
         ],
       ),
       body: SingleChildScrollView(
@@ -207,7 +247,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                 ),
               ),
             const SizedBox(height: 20),
-            if (esPersonal)
+            if (mostrarCosto)
               _buildTextField("COSTO", _costoController, enabled: _modoEdicion),
             const SizedBox(height: 20),
             _buildTextField(
@@ -216,127 +256,172 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
               enabled: _modoEdicion,
               onChanged: (v) => _calcularTotal(),
             ),
-            const Divider(height: 40, color: Colors.white10),
-            const Text(
-              "COMPRAS / PEDIDOS",
-              style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 15),
-            const Text(
-              "CANTIDAD A AÑADIR",
-              style: TextStyle(color: Colors.grey, fontSize: 12),
-            ),
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
-                borderRadius: BorderRadius.circular(8),
+            if (mostrarBloquePedidos) ...[
+              const Divider(height: 40, color: Colors.white10),
+              const Text(
+                "COMPRAS / PEDIDOS",
+                style:
+                    TextStyle(color: Colors.blue, fontWeight: FontWeight.bold),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    "$_cantidadAReservar",
-                    style: const TextStyle(
-                      fontSize: 18,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
+              const SizedBox(height: 15),
+              const Text(
+                "CANTIDAD A AÑADIR",
+                style: TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      "$_cantidadAReservar",
+                      style: const TextStyle(
+                        fontSize: 18,
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
-                  ),
-                  Row(
-                    children: [
-                      IconButton(
-                        icon: const Icon(
-                          Icons.remove_circle_outline,
-                          color: Colors.redAccent,
+                    Row(
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.remove_circle_outline,
+                            color: Colors.redAccent,
+                          ),
+                          onPressed: () {
+                            if (_cantidadAReservar > 0) {
+                              setState(() => _cantidadAReservar--);
+                              _calcularTotal();
+                            }
+                          },
                         ),
-                        onPressed: () {
-                          if (_cantidadAReservar > 0) {
-                            setState(() => _cantidadAReservar--);
+                        IconButton(
+                          icon: const Icon(
+                            Icons.add_circle_outline,
+                            color: Colors.greenAccent,
+                          ),
+                          onPressed: () {
+                            setState(() => _cantidadAReservar++);
                             _calcularTotal();
-                          }
-                        },
-                      ),
-                      IconButton(
-                        icon: const Icon(
-                          Icons.add_circle_outline,
-                          color: Colors.greenAccent,
+                          },
                         ),
-                        onPressed: () {
-                          setState(() => _cantidadAReservar++);
-                          _calcularTotal();
-                        },
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(height: 20),
-            _buildTextField(
-              "SUBTOTAL",
-              TextEditingController(
-                text: "\$ ${_totalVenta.toStringAsFixed(2)}",
+              const SizedBox(height: 20),
+              _buildTextField(
+                "SUBTOTAL",
+                TextEditingController(
+                  text: "\$ ${_totalVenta.toStringAsFixed(2)}",
+                ),
+                enabled: false,
               ),
-              enabled: false,
-            ),
+            ],
             const SizedBox(height: 40),
             SizedBox(
               width: double.infinity,
-              child: _modoEdicion && userRol == 'admin'
-                  ? ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.blue,
-                        padding: const EdgeInsets.all(15),
-                      ),
-                      onPressed: _guardarCambios,
-                      child: const Text("GUARDAR CAMBIOS"),
-                    )
-                  : ElevatedButton.icon(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: _cantidadAReservar > 0
-                            ? Colors.green
-                            : Colors.grey,
-                        padding: const EdgeInsets.all(15),
-                      ),
-                      onPressed: _cantidadAReservar > 0
-                          ? () {
-                              CartService().agregarProducto(
-                                widget.producto,
-                                _cantidadAReservar,
-                              );
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                    "¡${_cantidadAReservar}x ${widget.producto['descripcion_1']} añadido!",
-                                  ),
-                                  backgroundColor: Colors.green.shade800,
-                                  duration: const Duration(seconds: 3),
-                                  action: SnackBarAction(
-                                    label: "VER CARRITO",
-                                    textColor: Colors.white,
-                                    onPressed: () {
-                                      Navigator.push(
-                                        context,
-                                        MaterialPageRoute(
-                                          builder: (context) =>
-                                              const CarritoPage(),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              );
-                            }
-                          : null,
-                      icon: const Icon(Icons.add_shopping_cart),
-                      label: const Text("AÑADIR AL PEDIDO"),
-                    ),
+              child: _botonAccionPrincipal(
+                esModoInventario: esModoInventario,
+                puedeGestionFicha: puedeGestionFicha,
+              ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _botonAccionPrincipal({
+    required bool esModoInventario,
+    required bool puedeGestionFicha,
+  }) {
+    if (esModoInventario) {
+      if (!puedeGestionFicha) {
+        return const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            'No tienes permisos para editar este producto.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white54),
+          ),
+        );
+      }
+      if (!_modoEdicion) {
+        return const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Text(
+            'Activa la edición con el interruptor superior para modificar la ficha.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: Colors.white54),
+          ),
+        );
+      }
+      return ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.blue,
+          padding: const EdgeInsets.all(15),
+        ),
+        onPressed: _guardarCambios,
+        child: const Text('GUARDAR CAMBIOS'),
+      );
+    }
+
+    if (_modoEdicion && userRol == 'admin') {
+      return ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: Colors.blue,
+          padding: const EdgeInsets.all(15),
+        ),
+        onPressed: _guardarCambios,
+        child: const Text('GUARDAR CAMBIOS'),
+      );
+    }
+
+    return ElevatedButton.icon(
+      style: ElevatedButton.styleFrom(
+        backgroundColor:
+            _cantidadAReservar > 0 ? Colors.green : Colors.grey,
+        padding: const EdgeInsets.all(15),
+      ),
+      onPressed: _cantidadAReservar > 0
+          ? () {
+              CartService().agregarProducto(
+                widget.producto,
+                _cantidadAReservar,
+              );
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '¡${_cantidadAReservar}x ${widget.producto['descripcion_1']} añadido!',
+                  ),
+                  backgroundColor: Colors.green.shade800,
+                  duration: const Duration(seconds: 3),
+                  action: SnackBarAction(
+                    label: 'VER CARRITO',
+                    textColor: Colors.white,
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const CarritoPage(),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              );
+            }
+          : null,
+      icon: const Icon(Icons.add_shopping_cart),
+      label: const Text('AÑADIR AL PEDIDO'),
     );
   }
 
