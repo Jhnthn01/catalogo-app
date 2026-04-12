@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'cart_service.dart';
+import 'resumen_pedido_page.dart';
 
 class CarritoPage extends StatefulWidget {
   const CarritoPage({super.key});
@@ -14,53 +15,60 @@ class _CarritoPageState extends State<CarritoPage> {
 
   void _refrescar() => setState(() {});
 
-  Future<void> _confirmarPedido() async {
-    if (cart.items.isEmpty) return;
+Future<void> _confirmarPedido() async {
+  if (cart.items.isEmpty) return;
 
-    try {
-      final user = Supabase.instance.client.auth.currentUser;
-      
-      final pedido = await Supabase.instance.client.from('pedidos').insert({
-        'usuario_id': user?.id,
-        'total': cart.total,
-        'estado': 'pendiente',
-      }).select().single();
+  try {
+    final user = Supabase.instance.client.auth.currentUser;
+    
+    // 1. Obtenemos los datos actuales del perfil para el resumen
+    final perfilData = await Supabase.instance.client
+        .from('perfiles')
+        .select()
+        .eq('id', user!.id)
+        .single();
 
-      final detalles = cart.items.map((item) => {
-        'pedido_id': pedido['id'],
-        'producto_id': item.id,
-        'cantidad': item.cantidad,
-        'precio_unitario': item.precio,
-      }).toList();
+    // 2. Registramos el pedido en la base de datos (tu código actual)
+    final pedido = await Supabase.instance.client.from('pedidos').insert({
+      'usuario_id': user.id,
+      'total': cart.total,
+      'estado': 'pendiente',
+    }).select().single();
 
-      await Supabase.instance.client.from('detalles_pedido').insert(detalles);
+    final detalles = cart.items.map((item) => {
+      'pedido_id': pedido['id'],
+      'producto_id': item.id,
+      'cantidad': item.cantidad,
+      'precio_unitario': item.precio,
+    }).toList();
 
-      cart.limpiar();
-      if (mounted) {
-        _mostrarExito();
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
+    await Supabase.instance.client.from('detalles_pedido').insert(detalles);
+
+    // Guardamos copias locales antes de limpiar el carrito
+    final itemsResumen = List<CartItem>.from(cart.items);
+    final totalResumen = cart.total;
+
+    // 3. Limpiamos el carrito
+    cart.limpiar();
+
+    // 4. Navegamos al resumen
+    if (mounted) {
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ResumenPedidoPage(
+            datosUsuario: perfilData,
+            total: totalResumen,
+            items: itemsResumen,
+          ),
+        ),
+      );
     }
+  } catch (e) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text("Error: $e")));
   }
+}
 
-  void _mostrarExito() {
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text("¡Orden Generada!", style: TextStyle(color: Colors.white)),
-        content: const Text("Tu pedido ha sido registrado. Paga en caja al llegar a la tienda.", style: TextStyle(color: Colors.grey)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.popUntil(context, (r) => r.isFirst),
-            child: const Text("ENTENDIDO", style: TextStyle(color: Colors.blue)),
-          )
-        ],
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
