@@ -3,6 +3,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:catalogo_digital_app/features/catalog/detalle_producto_page.dart';
+import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
 
 class InventarioPage extends StatefulWidget {
   const InventarioPage({super.key});
@@ -24,6 +25,10 @@ class _InventarioPageState extends State<InventarioPage> {
   int _paginaActual = 0;
   final int _tamanhoPagina = 25;
   int _fetchId = 0;
+
+  String? _catFiltro;
+  String? _claseFiltro;
+  String? _subClaseFiltro;
 
   @override
   void initState() {
@@ -72,6 +77,10 @@ class _InventarioPageState extends State<InventarioPage> {
         );
       }
 
+      if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
+      if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
+      if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
+
       final List<dynamic> data = await query
           .order('descripcion_1')
           .range(desde, hasta);
@@ -113,6 +122,18 @@ class _InventarioPageState extends State<InventarioPage> {
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
             child: _isScanning ? _buildScanner() : _buildSearchBar(),
+          ),
+          FiltrosJerarquiaWidget(
+            onFiltrosCambiados: (cat, clase, sub) {
+              _catFiltro = cat;
+              _claseFiltro = clase;
+              _subClaseFiltro = sub;
+              _reiniciarLista();
+              if (_isLoading) {
+                setState(() => _isLoading = false);
+              }
+              _cargarMasProductos();
+            },
           ),
           Expanded(
             child: _productos.isEmpty && _isLoading

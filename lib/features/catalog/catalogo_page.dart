@@ -6,6 +6,7 @@ import 'package:catalogo_digital_app/features/cart/carrito_page.dart';
 import 'package:catalogo_digital_app/features/catalog/detalle_producto_page.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
 import 'package:catalogo_digital_app/widgets/menu_lateral.dart';
+import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
 
 class CatalogoPage extends StatefulWidget {
   const CatalogoPage({super.key});
@@ -27,6 +28,10 @@ class _CatalogoPageState extends State<CatalogoPage> {
   int _paginaActual = 0;
   final int _tamanhoPagina = 25;
   int _fetchId = 0;
+
+  String? _catFiltro;
+  String? _claseFiltro;
+  String? _subClaseFiltro;
 
   @override
   void initState() {
@@ -83,6 +88,10 @@ class _CatalogoPageState extends State<CatalogoPage> {
         query = query.or(
             'descripcion_1.ilike.%$_searchQuery%,sku.ilike.%$_searchQuery%,upc.ilike.%$_searchQuery%,alu.ilike.%$_searchQuery%');
       }
+
+      if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
+      if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
+      if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
 
       final List<dynamic> data = await query
           .order('descripcion_1', ascending: true)
@@ -164,6 +173,14 @@ class _CatalogoPageState extends State<CatalogoPage> {
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
             child: _isScanning ? _buildScanner() : _buildSearchBar(),
+          ),
+          FiltrosJerarquiaWidget(
+            onFiltrosCambiados: (cat, clase, sub) {
+              _catFiltro = cat;
+              _claseFiltro = clase;
+              _subClaseFiltro = sub;
+              _fetchProductos(refresh: true);
+            },
           ),
           Expanded(
             child: _productos.isEmpty && _isLoading
