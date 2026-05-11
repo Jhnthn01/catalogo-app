@@ -248,7 +248,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
             _buildTextField(
               "Nombre del Producto",
               _nameController,
-              enabled: _modoEdicion,
+              enabled: _modoEdicion && puedeGestionFicha,
             ),
             const SizedBox(height: 20),
             _buildTextField("SKU", _skuController, enabled: false),
@@ -305,12 +305,12 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
               }),
             const SizedBox(height: 20),
             if (mostrarCosto)
-              _buildTextField("COSTO", _costoController, enabled: _modoEdicion),
+              _buildTextField("COSTO", _costoController, enabled: _modoEdicion && puedeGestionFicha),
             const SizedBox(height: 20),
             _buildTextField(
               "PRECIO VENTA PÚBLICO",
               _precioVentaController,
-              enabled: _modoEdicion,
+              enabled: _modoEdicion && puedeGestionFicha,
               onChanged: (v) => _calcularTotal(),
             ),
             if (mostrarBloquePedidos) ...[
