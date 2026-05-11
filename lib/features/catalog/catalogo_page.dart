@@ -418,54 +418,82 @@ class _CatalogoPageState extends State<CatalogoPage> {
     );
   }
 
-  void _mostrarDialogoCantidad(
-      BuildContext context, Map<String, dynamic> producto) {
-    int cantidad = 1;
+void _mostrarDialogoCantidad(BuildContext context, Map<String, dynamic> producto) {
+    // Controller para manejar el texto del input
+    final TextEditingController _cantidadController = TextEditingController(text: "1");
 
     showDialog(
       context: context,
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
+            
+            // Función auxiliar para actualizar tanto el estado como el texto del controller
+            void _actualizarCantidad(int nuevaCantidad) {
+              if (nuevaCantidad >= 1) {
+                setDialogState(() {
+                  _cantidadController.text = nuevaCantidad.toString();
+                });
+              }
+            }
+
             return AlertDialog(
               backgroundColor: const Color(0xFF1E1E1E),
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(20)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
               title: Text(
-                producto['descripcion_1'],
+                producto['descripcion_1'] ?? 'Producto',
                 style: const TextStyle(color: Colors.white, fontSize: 16),
                 textAlign: TextAlign.center,
               ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text("Selecciona la cantidad",
+                  const Text("Ingresa o selecciona la cantidad",
                       style: TextStyle(color: Colors.grey)),
                   const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
+                      // Botón Menos
                       IconButton(
-                        icon: const Icon(Icons.remove_circle_outline,
-                            color: Colors.redAccent),
+                        icon: const Icon(Icons.remove_circle_outline, color: Colors.redAccent),
                         onPressed: () {
-                          if (cantidad > 1) setDialogState(() => cantidad--);
+                          int actual = int.tryParse(_cantidadController.text) ?? 1;
+                          _actualizarCantidad(actual - 1);
                         },
                       ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: Text(
-                          "$cantidad",
+                      
+                      // Campo de texto editable
+                      SizedBox(
+                        width: 80,
+                        child: TextField(
+                          controller: _cantidadController,
+                          keyboardType: TextInputType.number,
+                          textAlign: TextAlign.center,
                           style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold),
+                            color: Colors.white,
+                            fontSize: 24,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          decoration: const InputDecoration(
+                            border: InputBorder.none,
+                            isDense: true,
+                          ),
+                          // Selecciona todo el texto al ganar foco para borrar rápido
+                          onTap: () => _cantidadController.selection = TextSelection(
+                            baseOffset: 0,
+                            extentOffset: _cantidadController.text.length,
+                          ),
                         ),
                       ),
+
+                      // Botón Más
                       IconButton(
-                        icon: const Icon(Icons.add_circle_outline,
-                            color: Colors.greenAccent),
-                        onPressed: () => setDialogState(() => cantidad++),
+                        icon: const Icon(Icons.add_circle_outline, color: Colors.greenAccent),
+                        onPressed: () {
+                          int actual = int.tryParse(_cantidadController.text) ?? 0;
+                          _actualizarCantidad(actual + 1);
+                        },
                       ),
                     ],
                   ),
@@ -474,22 +502,23 @@ class _CatalogoPageState extends State<CatalogoPage> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(context),
-                  child: const Text("CANCELAR",
-                      style: TextStyle(color: Colors.grey)),
+                  child: const Text("CANCELAR", style: TextStyle(color: Colors.grey)),
                 ),
                 ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.blue),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                   onPressed: () {
-                    CartService().agregarProducto(producto, cantidad);
-                    Navigator.pop(context);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(
-                            "$cantidad x ${producto['descripcion_1']} añadido"),
-                        backgroundColor: Colors.blueGrey.shade900,
-                      ),
-                    );
+                    final int cantFinal = int.tryParse(_cantidadController.text) ?? 1;
+                    if (cantFinal > 0) {
+                      CartService().agregarProducto(producto, cantFinal);
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text("$cantFinal x ${producto['descripcion_1']} añadido"),
+                          backgroundColor: Colors.blueGrey.shade900,
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
+                    }
                   },
                   child: const Text("AÑADIR"),
                 ),

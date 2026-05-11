@@ -147,11 +147,71 @@ class _CarritoPageState extends State<CarritoPage> {
                   _refrescar();
                 },
               ),
-              Text("${item.cantidad}",
-                  style: const TextStyle(
+              GestureDetector(
+                onTap: () async {
+                  final TextEditingController qtyController =
+                      TextEditingController(text: item.cantidad.toString());
+                  await showDialog(
+                    context: context,
+                    builder: (context) {
+                      return AlertDialog(
+                        backgroundColor: const Color(0xFF2C2C2C),
+                        title: const Text("Editar Cantidad",
+                            style: TextStyle(color: Colors.white)),
+                        content: TextField(
+                          controller: qtyController,
+                          keyboardType: TextInputType.number,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: const InputDecoration(
+                            focusedBorder: UnderlineInputBorder(
+                                borderSide: BorderSide(color: Colors.blue)),
+                            enabledBorder: UnderlineInputBorder(
+                                borderSide: BorderSide(color: Colors.grey)),
+                          ),
+                          autofocus: true,
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.pop(context),
+                            child: const Text("CANCELAR",
+                                style: TextStyle(color: Colors.grey)),
+                          ),
+                          TextButton(
+                            onPressed: () {
+                              final int? newQty =
+                                  int.tryParse(qtyController.text);
+                              if (newQty != null && newQty >= 0) {
+                                cart.actualizarCantidad(item.id, newQty);
+                                _refrescar();
+                              }
+                              Navigator.pop(context);
+                            },
+                            child: const Text("GUARDAR",
+                                style: TextStyle(color: Colors.blue)),
+                          ),
+                        ],
+                      );
+                    },
+                  );
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                      color: Colors.blue.withOpacity(0.1),
+                      borderRadius: BorderRadius.circular(8),
+                      border:
+                          Border.all(color: Colors.blue.withOpacity(0.5))),
+                  child: Text(
+                    "${item.cantidad}",
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 16,
-                      fontWeight: FontWeight.bold)),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ),
               IconButton(
                 icon: const Icon(Icons.add_circle_outline, color: Colors.blue),
                 onPressed: () {

@@ -35,6 +35,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
   int _cantidadAReservar = 0;
   double _totalVenta = 0.0;
   List<dynamic> _stocks = [];
+  final Map<String, TextEditingController> _stockControllers = {};
   String userRol = 'cliente';
   bool _modoEdicion = false;
 
@@ -61,9 +62,18 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     try {
       final data = await Supabase.instance.client
           .from('inventario')
-          .select('stock, tiendas(codigo_tienda, nombre)')
+          .select('id, stock, tiendas(codigo_tienda, nombre)')
           .eq('producto_id', widget.producto['id']);
-      setState(() => _stocks = data);
+      if (mounted) {
+        setState(() {
+          _stocks = data;
+          _stockControllers.clear();
+          for (var s in data) {
+            _stockControllers[s['id'].toString()] =
+                TextEditingController(text: s['stock'].toString());
+          }
+        });
+      }
     } catch (e) {
       debugPrint("Error cargando stock: $e");
     }
@@ -94,7 +104,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
   }
 
   bool _rolPuedeGestionarInventario(String rol) {
-    return rol == 'admin' || rol == 'trabajador' || rol == 'empleado';
+    return rol == 'admin' || rol == 'gerente';
   }
 
   /// Catálogo vs inventario: flag explícito y/o [DetalleProductoOrigen.inventario].
@@ -113,13 +123,16 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     _skuController.dispose();
     _costoController.dispose();
     _precioVentaController.dispose();
+    for (var controller in _stockControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final bool esPersonal =
-        (userRol == 'admin' || userRol == 'trabajador' || userRol == 'empleado');
+        (userRol == 'admin' || userRol == 'gerente' || userRol == 'almacenista' || userRol == 'cajero' || userRol == 'vendedor');
     final bool puedeGestionFicha = _rolPuedeGestionarInventario(userRol);
     final bool esModoInventario = _esPantallaInventario;
     final bool mostrarBloquePedidos = !_esPantallaInventario;
@@ -236,16 +249,38 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                 style: TextStyle(color: Colors.white54),
               )
             else
-              ..._stocks.map(
-                (s) => Padding(
+              ..._stocks.map((s) {
+                final idStr = s['id'].toString();
+                final controller = _stockControllers[idStr];
+                if (controller == null) return const SizedBox.shrink();
+
+                return Padding(
                   padding: const EdgeInsets.only(bottom: 8.0),
-                  child: _buildTextField(
-                    "Tienda: ${s['tiendas']['nombre']}",
-                    TextEditingController(text: s['stock'].toString()),
-                    enabled: false,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: _buildTextField(
+                          "Tienda: ${s['tiendas']['nombre']}",
+                          controller,
+                          enabled: _modoEdicion && userRol == 'admin',
+                          isNumeric: true,
+                        ),
+                      ),
+                      if (_modoEdicion && userRol != 'admin') ...[
+                        const SizedBox(width: 10),
+                        Container(
+                          margin: const EdgeInsets.only(top: 18),
+                          child: IconButton(
+                            icon: const Icon(Icons.report_problem_outlined, color: Colors.orangeAccent),
+                            tooltip: "Reportar conteo físico",
+                            onPressed: () => _mostrarDialogoAjuste(idStr, s['tiendas']['nombre'], s['stock']),
+                          ),
+                        )
+                      ]
+                    ],
                   ),
-                ),
-              ),
+                );
+              }),
             const SizedBox(height: 20),
             if (mostrarCosto)
               _buildTextField("COSTO", _costoController, enabled: _modoEdicion),
@@ -279,12 +314,69 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(
-                      "$_cantidadAReservar",
-                      style: const TextStyle(
-                        fontSize: 18,
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
+                    GestureDetector(
+                      onTap: () async {
+                        final TextEditingController qtyController =
+                            TextEditingController(text: _cantidadAReservar.toString());
+                        await showDialog(
+                          context: context,
+                          builder: (context) {
+                            return AlertDialog(
+                              backgroundColor: const Color(0xFF2C2C2C),
+                              title: const Text("Editar Cantidad",
+                                  style: TextStyle(color: Colors.white)),
+                              content: TextField(
+                                controller: qtyController,
+                                keyboardType: TextInputType.number,
+                                style: const TextStyle(color: Colors.white),
+                                decoration: const InputDecoration(
+                                  focusedBorder: UnderlineInputBorder(
+                                      borderSide: BorderSide(color: Colors.blue)),
+                                  enabledBorder: UnderlineInputBorder(
+                                      borderSide: BorderSide(color: Colors.grey)),
+                                ),
+                                autofocus: true,
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () => Navigator.pop(context),
+                                  child: const Text("CANCELAR",
+                                      style: TextStyle(color: Colors.grey)),
+                                ),
+                                TextButton(
+                                  onPressed: () {
+                                    final int? newQty =
+                                        int.tryParse(qtyController.text);
+                                    if (newQty != null && newQty >= 0) {
+                                      setState(() => _cantidadAReservar = newQty);
+                                      _calcularTotal();
+                                    }
+                                    Navigator.pop(context);
+                                  },
+                                  child: const Text("GUARDAR",
+                                      style: TextStyle(color: Colors.blue)),
+                                ),
+                              ],
+                            );
+                          },
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 8),
+                        decoration: BoxDecoration(
+                            color: Colors.blue.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border:
+                                Border.all(color: Colors.blue.withOpacity(0.5))),
+                        child: Text(
+                          "$_cantidadAReservar",
+                          style: const TextStyle(
+                            fontSize: 18,
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                       ),
                     ),
                     Row(
@@ -425,13 +517,152 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     );
   }
 
+  Future<void> _mostrarDialogoAjuste(String inventarioId, String nombreTienda, dynamic stockActual) async {
+    final TextEditingController qtyController = TextEditingController();
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          title: Text("Reportar Conteo - $nombreTienda", style: const TextStyle(color: Colors.white, fontSize: 16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text("Ingresa la cantidad física contada en piso:", style: TextStyle(color: Colors.white70)),
+              const SizedBox(height: 15),
+              TextField(
+                controller: qtyController,
+                keyboardType: TextInputType.number,
+                style: const TextStyle(color: Colors.white),
+                decoration: const InputDecoration(
+                  filled: true,
+                  fillColor: Colors.black26,
+                  hintText: "Ej. 15",
+                  hintStyle: TextStyle(color: Colors.white24)
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("Cancelar", style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final qty = int.tryParse(qtyController.text);
+                if (qty == null || qty < 0) return;
+                
+                try {
+                  // 1. Checar si ya hay validacion
+                  final existe = await Supabase.instance.client
+                    .from('ajustes_inventario')
+                    .select('id')
+                    .eq('inventario_id', inventarioId)
+                    .eq('estado', 'pendiente')
+                    .maybeSingle();
+
+                  if (existe != null) {
+                    if (context.mounted) {
+                      Navigator.pop(context);
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text("Ya hay una validación en progreso para este producto."),
+                        backgroundColor: Colors.orange,
+                      ));
+                    }
+                    return;
+                  }
+
+                  // 2. Insertar
+                  final user = Supabase.instance.client.auth.currentUser;
+                  await Supabase.instance.client.from('ajustes_inventario').insert({
+                    'inventario_id': inventarioId,
+                    'usuario_id': user?.id,
+                    'cantidad_reportada': qty,
+                    'estado': 'pendiente'
+                  });
+
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text("Solicitud enviada al gerente para su revisión."),
+                      backgroundColor: Colors.green,
+                    ));
+                  }
+                } catch (e) {
+                  debugPrint("Error guardando ajuste: $e");
+                }
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
+              child: const Text("ENVIAR", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            ),
+          ]
+        );
+      }
+    );
+  }
+
   Future<void> _guardarCambios() async {
+    bool stockModificado = false;
+    
+    if (userRol == 'admin') {
+      for (var s in _stocks) {
+        final idStr = s['id'].toString();
+        final controller = _stockControllers[idStr];
+        if (controller != null && controller.text != s['stock'].toString()) {
+          stockModificado = true;
+          break;
+        }
+      }
+    }
+
+    if (stockModificado) {
+      final confirmar = await showDialog<bool>(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            title: const Text("Aviso de Cambio de Stock", style: TextStyle(color: Colors.orangeAccent)),
+            content: const Text(
+              "Estás editando el inventario físico directamente como Administrador. Este cambio se reflejará inmediatamente y de manera definitiva.\n\n¿Deseas continuar?",
+              style: TextStyle(color: Colors.white70)
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text("Cancelar", style: TextStyle(color: Colors.grey)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text("SÍ, CONTINUAR", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+              )
+            ],
+          );
+        }
+      ) ?? false;
+      
+      if (!confirmar) return;
+    }
+
     try {
       await Supabase.instance.client.from('productos').update({
         'descripcion_1': _nameController.text,
         'precio_venta': double.tryParse(_precioVentaController.text),
         'costo': double.tryParse(_costoController.text),
       }).eq('id', widget.producto['id']);
+
+      for (var s in _stocks) {
+        final idStr = s['id'].toString();
+        final controller = _stockControllers[idStr];
+        if (controller != null) {
+          final nuevoStock = int.tryParse(controller.text) ?? 0;
+          await Supabase.instance.client.from('inventario').update({
+            'stock': nuevoStock,
+            'actualizado_at': DateTime.now().toUtc().toIso8601String(),
+          }).eq('id', s['id']);
+        }
+      }
 
       if (mounted) {
         setState(() => _modoEdicion = false);
@@ -447,6 +678,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     String label,
     TextEditingController controller, {
     bool enabled = true,
+    bool isNumeric = false,
     Function(String)? onChanged,
   }) {
     return Column(
@@ -458,6 +690,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
           controller: controller,
           enabled: enabled,
           onChanged: onChanged,
+          keyboardType: isNumeric ? TextInputType.number : TextInputType.text,
           style: TextStyle(color: enabled ? Colors.white : Colors.white54),
           decoration: InputDecoration(
             filled: true,

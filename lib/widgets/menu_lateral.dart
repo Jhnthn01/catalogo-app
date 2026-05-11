@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:catalogo_digital_app/features/inventory/inventario_page.dart';
 import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
+import 'package:catalogo_digital_app/features/inventory/validar_ajustes_page.dart';
 import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
 import 'package:catalogo_digital_app/features/profile/perfil_page.dart';
 import 'package:catalogo_digital_app/features/admin/gestion_roles_page.dart';
@@ -204,6 +205,26 @@ class _MenuLateralState extends State<MenuLateral> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => const CargaMasivaPage(),
+                      ),
+                    );
+                  },
+                ),
+              if (rol == 'admin' || rol == 'gerente')
+                ListTile(
+                  leading: const Icon(
+                    Icons.fact_check_outlined,
+                    color: Colors.orangeAccent,
+                  ),
+                  title: const Text(
+                    'Validar Ajustes',
+                    style: TextStyle(color: Colors.orangeAccent),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const ValidarAjustesPage(),
                       ),
                     );
                   },
