@@ -82,10 +82,10 @@ class _CatalogoPageState extends State<CatalogoPage> {
     try {
       final desde = _paginaActual * _tamanhoPagina;
       final hasta = desde + _tamanhoPagina - 1;
-
-      var query = _supabase
-          .from('productos')
-          .select('id, sku, upc, alu, descripcion_1, precio_venta, costo, inventario(stock)');
+      
+      var query = _supabase.from('productos').select(
+            'id, sku, upc, alu, descripcion_1, precio_venta, inventario(stock)',
+          );
 
       if (_searchQuery.isNotEmpty) {
         query = query.or(
@@ -121,8 +121,22 @@ class _CatalogoPageState extends State<CatalogoPage> {
       backgroundColor: const Color(0xFF121212),
       drawer: const MenuLateral(),
       appBar: AppBar(
-        title: const Text("Catálogo de Productos"),
-        backgroundColor: const Color(0xFF121212),
+        title: Text(
+          "Catálogo",
+          style: TextStyle(
+            color: Colors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 24,
+            shadows: [
+              Shadow(
+                blurRadius: 10,
+                color: Colors.blueAccent.withOpacity(0.5),
+              )
+            ],
+          ),
+        ),
+        backgroundColor: Colors.transparent,
+        elevation: 0,
         actions: [
           ValueListenableBuilder<int>(
             valueListenable: CartService().itemsCountNotifier,
@@ -345,7 +359,9 @@ class _CatalogoPageState extends State<CatalogoPage> {
             MaterialPageRoute(
               builder: (context) => DetalleProductoPage(producto: producto),
             ),
-          );
+          ).then((_) {
+            _fetchProductos(refresh: true);
+          });
         },
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),

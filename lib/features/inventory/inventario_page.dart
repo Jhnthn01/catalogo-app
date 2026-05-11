@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:csv/csv.dart';
+import 'package:universal_html/html.dart' as html;
+import 'dart:convert';
 
+import 'package:catalogo_digital_app/services/tienda_service.dart';
+import 'package:catalogo_digital_app/features/inventory/nuevo_producto_page.dart';
 import 'package:catalogo_digital_app/features/catalog/detalle_producto_page.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
 
@@ -111,13 +116,126 @@ class _InventarioPageState extends State<InventarioPage> {
     super.dispose();
   }
 
+  Future<void> _exportarCSV() async {
+    final tiendas = TiendaService().tiendas;
+    if (tiendas.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No hay tiendas disponibles para exportar.')));
+      return;
+    }
+
+    int? tiendaIdSeleccionada = tiendas.first['id'];
+
+    final bool? confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setStateDialog) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF2C2C2C),
+              title: const Text("Seleccionar Tienda", style: TextStyle(color: Colors.white)),
+              content: DropdownButton<int>(
+                value: tiendaIdSeleccionada,
+                dropdownColor: const Color(0xFF1E1E1E),
+                isExpanded: true,
+                items: tiendas.map((t) {
+                  return DropdownMenuItem<int>(
+                    value: t['id'] as int,
+                    child: Text(t['nombre'] ?? '', style: const TextStyle(color: Colors.white)),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val != null) setStateDialog(() => tiendaIdSeleccionada = val);
+                },
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text("CANCELAR", style: TextStyle(color: Colors.grey)),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(context, true),
+                  child: const Text("EXPORTAR", style: TextStyle(color: Colors.greenAccent)),
+                ),
+              ],
+            );
+          }
+        );
+      }
+    );
+
+    if (confirmar != true || tiendaIdSeleccionada == null) return;
+    
+    setState(() => _isLoading = true);
+    try {
+      final response = await Supabase.instance.client
+          .from('productos')
+          .select('sku, upc, marca, categoria, clase, sub_clase, estilo, descripcion_1, color, costo, precio_venta, inventario!inner(stock, tiendas(nombre))')
+          .eq('inventario.tienda_id', tiendaIdSeleccionada!);
+          
+      if (response.isEmpty) {
+        if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No hay productos para esta tienda')));
+        setState(() => _isLoading = false);
+        return;
+      }
+      
+      final String nombreTienda = response.first['inventario'][0]['tiendas']['nombre'] ?? 'tienda';
+      
+      List<List<dynamic>> rows = [];
+      rows.add(['SKU', 'UPC', 'Marca', 'Categoria', 'Clase', 'Subclase', 'Estilo', 'Descripcion', 'Color', 'Costo', 'Precio', 'Stock', 'Tienda']);
+      
+      for (var p in response) {
+        final stockInfo = p['inventario'][0];
+        rows.add([
+          p['sku'] ?? '',
+          p['upc'] ?? '',
+          p['marca'] ?? '',
+          p['categoria'] ?? '',
+          p['clase'] ?? '',
+          p['sub_clase'] ?? '',
+          p['estilo'] ?? '',
+          p['descripcion_1'] ?? '',
+          p['color'] ?? '',
+          p['costo'] ?? 0,
+          p['precio_venta'] ?? 0,
+          stockInfo['stock'] ?? 0,
+          nombreTienda
+        ]);
+      }
+      
+      String csvData = csv.encode(rows);
+      final bytes = utf8.encode(csvData);
+      final blob = html.Blob([bytes]);
+      final url = html.Url.createObjectUrlFromBlob(blob);
+      final anchor = html.document.createElement('a') as html.AnchorElement
+        ..href = url
+        ..style.display = 'none'
+        ..download = 'maestro_${nombreTienda.replaceAll(' ', '_')}.csv';
+      html.document.body!.children.add(anchor);
+      anchor.click();
+      html.document.body!.children.remove(anchor);
+      html.Url.revokeObjectUrl(url);
+      
+    } catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
-        title: const Text("Gestión de Inventario"),
+        title: const Text("Inventario"),
         backgroundColor: Colors.transparent,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.download, color: Colors.greenAccent),
+            tooltip: 'Exportar Maestro CSV',
+            onPressed: _exportarCSV,
+          )
+        ],
       ),
       body: Column(
         children: [
@@ -201,6 +319,21 @@ class _InventarioPageState extends State<InventarioPage> {
                       ),
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        backgroundColor: Colors.blueAccent,
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const NuevoProductoPage()),
+          ).then((value) {
+            if (value == true) {
+              _reiniciarLista();
+              _cargarMasProductos();
+            }
+          });
+        },
+        child: const Icon(Icons.add, color: Colors.white),
       ),
     );
   }
@@ -324,6 +457,9 @@ class _InventarioPageState extends State<InventarioPage> {
           contextoInventario: true,
         ),
       ),
-    );
+    ).then((_) {
+      _reiniciarLista();
+      _cargarMasProductos();
+    });
   }
 }

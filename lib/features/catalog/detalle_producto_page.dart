@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:catalogo_digital_app/services/tienda_service.dart';
+import 'package:catalogo_digital_app/widgets/selector_tienda.dart';
 import 'package:catalogo_digital_app/features/cart/carrito_page.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
 import 'package:catalogo_digital_app/widgets/menu_lateral.dart';
@@ -11,8 +13,6 @@ class DetalleProductoPage extends StatefulWidget {
   final Map<String, dynamic> producto;
   final DetalleProductoOrigen origen;
 
-  /// Si es true: pantalla de gestión (inventario). Oculta carrito y COMPRAS / PEDIDOS.
-  /// Debe pasarse en [true] desde [InventarioPage]; en catálogo no se pasa (false).
   final bool contextoInventario;
 
   const DetalleProductoPage({
@@ -56,14 +56,30 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     _checkUserRole();
     _fetchStock();
     _calcularTotal();
+    TiendaService().tiendaSeleccionadaId.addListener(_onTiendaChanged);
   }
 
+  void _onTiendaChanged() {
+    if (mounted) {
+      _fetchStock();
+    }
+  }
+
+
+  // CORRECCIÓN 1: Eliminado try duplicado y llaves balanceadas
   Future<void> _fetchStock() async {
     try {
-      final data = await Supabase.instance.client
+      var query = Supabase.instance.client
           .from('inventario')
           .select('id, stock, tiendas(codigo_tienda, nombre)')
           .eq('producto_id', widget.producto['id']);
+          
+      final tiendaId = TiendaService().tiendaSeleccionadaId.value;
+      if (tiendaId != null) {
+        query = query.eq('tienda_id', tiendaId);
+      }
+
+      final data = await query;
       if (mounted) {
         setState(() {
           _stocks = data;
@@ -93,7 +109,6 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
       if (!mounted) return;
       setState(() {
         userRol = rol;
-        // Desde inventario: pantalla de gestión, no de compra — edición activa para personal de tienda.
         if (_esPantallaInventario && _rolPuedeGestionarInventario(rol)) {
           _modoEdicion = true;
         }
@@ -107,7 +122,6 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     return rol == 'admin' || rol == 'gerente';
   }
 
-  /// Catálogo vs inventario: flag explícito y/o [DetalleProductoOrigen.inventario].
   bool get _esPantallaInventario =>
       widget.contextoInventario ||
       widget.origen == DetalleProductoOrigen.inventario;
@@ -119,6 +133,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
 
   @override
   void dispose() {
+    TiendaService().tiendaSeleccionadaId.removeListener(_onTiendaChanged);
     _nameController.dispose();
     _skuController.dispose();
     _costoController.dispose();
@@ -239,6 +254,13 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
             _buildTextField("SKU", _skuController, enabled: false),
             const SizedBox(height: 20),
             const Text(
+              "TIENDA A CONSULTAR",
+              style: TextStyle(color: Colors.grey, fontSize: 11),
+            ),
+            const SizedBox(height: 6),
+            const SelectorTienda(),
+            const SizedBox(height: 15),
+            const Text(
               "STOCK POR TIENDA",
               style: TextStyle(color: Colors.grey, fontSize: 12),
             ),
@@ -300,7 +322,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
               ),
               const SizedBox(height: 15),
               const Text(
-                "CANTIDAD A AÑADIR",
+                "CANTIDAD A ANADIR",
                 style: TextStyle(color: Colors.grey, fontSize: 12),
               ),
               const SizedBox(height: 8),
@@ -315,52 +337,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     GestureDetector(
-                      onTap: () async {
-                        final TextEditingController qtyController =
-                            TextEditingController(text: _cantidadAReservar.toString());
-                        await showDialog(
-                          context: context,
-                          builder: (context) {
-                            return AlertDialog(
-                              backgroundColor: const Color(0xFF2C2C2C),
-                              title: const Text("Editar Cantidad",
-                                  style: TextStyle(color: Colors.white)),
-                              content: TextField(
-                                controller: qtyController,
-                                keyboardType: TextInputType.number,
-                                style: const TextStyle(color: Colors.white),
-                                decoration: const InputDecoration(
-                                  focusedBorder: UnderlineInputBorder(
-                                      borderSide: BorderSide(color: Colors.blue)),
-                                  enabledBorder: UnderlineInputBorder(
-                                      borderSide: BorderSide(color: Colors.grey)),
-                                ),
-                                autofocus: true,
-                              ),
-                              actions: [
-                                TextButton(
-                                  onPressed: () => Navigator.pop(context),
-                                  child: const Text("CANCELAR",
-                                      style: TextStyle(color: Colors.grey)),
-                                ),
-                                TextButton(
-                                  onPressed: () {
-                                    final int? newQty =
-                                        int.tryParse(qtyController.text);
-                                    if (newQty != null && newQty >= 0) {
-                                      setState(() => _cantidadAReservar = newQty);
-                                      _calcularTotal();
-                                    }
-                                    Navigator.pop(context);
-                                  },
-                                  child: const Text("GUARDAR",
-                                      style: TextStyle(color: Colors.blue)),
-                                ),
-                              ],
-                            );
-                          },
-                        );
-                      },
+                      onTap: () => _mostrarDialogoCantidad(onSuccess: null),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 8),
@@ -483,37 +460,93 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
             _cantidadAReservar > 0 ? Colors.green : Colors.grey,
         padding: const EdgeInsets.all(15),
       ),
-      onPressed: _cantidadAReservar > 0
-          ? () {
-              CartService().agregarProducto(
-                widget.producto,
-                _cantidadAReservar,
-              );
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(
-                    '¡${_cantidadAReservar}x ${widget.producto['descripcion_1']} añadido!',
-                  ),
-                  backgroundColor: Colors.green.shade800,
-                  duration: const Duration(seconds: 3),
-                  action: SnackBarAction(
-                    label: 'VER CARRITO',
-                    textColor: Colors.white,
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const CarritoPage(),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-              );
-            }
-          : null,
+      onPressed: () {
+        if (_cantidadAReservar > 0) {
+          _agregarAlPedido();
+        } else {
+          _mostrarDialogoCantidad(onSuccess: _agregarAlPedido);
+        }
+      },
       icon: const Icon(Icons.add_shopping_cart),
-      label: const Text('AÑADIR AL PEDIDO'),
+      label: const Text('ANADIR AL PEDIDO'),
+    );
+  }
+
+  // CORRECCIÓN 2: Eliminada la ñ del nombre de la función interna
+  void _agregarAlPedido() {
+    if (_cantidadAReservar <= 0) return;
+    CartService().agregarProducto(
+      widget.producto,
+      _cantidadAReservar,
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '¡${_cantidadAReservar}x ${widget.producto['descripcion_1']} añadido!',
+        ),
+        backgroundColor: Colors.green.shade800,
+        duration: const Duration(seconds: 3),
+        action: SnackBarAction(
+          label: 'VER CARRITO',
+          textColor: Colors.white,
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const CarritoPage(),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Future<void> _mostrarDialogoCantidad({Function()? onSuccess}) async {
+    final TextEditingController qtyController =
+        TextEditingController(text: _cantidadAReservar == 0 ? '' : _cantidadAReservar.toString());
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF2C2C2C),
+          title: const Text("Cantidad a añadir", style: TextStyle(color: Colors.white)),
+          content: TextField(
+            controller: qtyController,
+            keyboardType: TextInputType.number,
+            style: const TextStyle(color: Colors.white),
+            decoration: const InputDecoration(
+              focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.blue)),
+              enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: Colors.grey)),
+              hintText: "Ej. 10",
+              hintStyle: TextStyle(color: Colors.white24)
+            ),
+            autofocus: true,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text("CANCELAR", style: TextStyle(color: Colors.grey)),
+            ),
+            TextButton(
+              onPressed: () {
+                final int? newQty = int.tryParse(qtyController.text);
+                if (newQty != null && newQty > 0) {
+                  setState(() => _cantidadAReservar = newQty);
+                  _calcularTotal();
+                  Navigator.pop(context);
+                  if (onSuccess != null) {
+                    onSuccess();
+                  }
+                } else {
+                  Navigator.pop(context);
+                }
+              },
+              child: const Text("GUARDAR", style: TextStyle(color: Colors.blue)),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -554,7 +587,6 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                 if (qty == null || qty < 0) return;
                 
                 try {
-                  // 1. Checar si ya hay validacion
                   final existe = await Supabase.instance.client
                     .from('ajustes_inventario')
                     .select('id')
@@ -573,7 +605,6 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                     return;
                   }
 
-                  // 2. Insertar
                   final user = Supabase.instance.client.auth.currentUser;
                   await Supabase.instance.client.from('ajustes_inventario').insert({
                     'inventario_id': inventarioId,
