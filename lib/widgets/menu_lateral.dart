@@ -150,22 +150,52 @@ class _MenuLateralState extends State<MenuLateral> {
                   (route) => false,
                 ),
               ),
-              ListTile(
-                leading: const Icon(
-                  Icons.shopping_bag_outlined,
-                  color: Colors.white70,
-                ),
-                title: const Text(
-                  'Mis Pedidos',
-                  style: TextStyle(color: Colors.white),
-                ),
-                onTap: () {
-                  Navigator.pop(context);
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const MisPedidosPage(),
+              StreamBuilder<List<Map<String, dynamic>>>(
+                stream: Supabase.instance.client
+                    .from('pedidos')
+                    .stream(primaryKey: ['id'])
+                    .eq('estado', 'pendiente'),
+                builder: (context, snapshot) {
+                  int pendingCount = 0;
+                  if (snapshot.hasData) {
+                    pendingCount = snapshot.data!.length;
+                  }
+
+                  return ListTile(
+                    leading: const Icon(
+                      Icons.shopping_bag_outlined,
+                      color: Colors.white70,
                     ),
+                    title: const Text(
+                      'Pedidos de Clientes',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    trailing: pendingCount > 0
+                        ? Container(
+                            padding: const EdgeInsets.all(6),
+                            decoration: const BoxDecoration(
+                              color: Colors.redAccent,
+                              shape: BoxShape.circle,
+                            ),
+                            child: Text(
+                              pendingCount > 99 ? '99+' : pendingCount.toString(),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          )
+                        : null,
+                    onTap: () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const MisPedidosPage(),
+                        ),
+                      );
+                    },
                   );
                 },
               ),

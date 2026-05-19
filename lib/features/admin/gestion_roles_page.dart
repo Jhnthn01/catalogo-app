@@ -19,6 +19,7 @@ class _GestionRolesPageState extends State<GestionRolesPage> {
     'admin',
     'gerente',
     'almacenista',
+    'despachador',
     'vendedor',
     'cajero',
     'cliente'
@@ -102,6 +103,8 @@ class _GestionRolesPageState extends State<GestionRolesPage> {
         return Colors.purpleAccent;
       case 'almacenista':
         return Colors.orangeAccent;
+      case 'despachador':
+        return Colors.amberAccent;
       case 'vendedor':
         return Colors.blueAccent;
       case 'cajero':

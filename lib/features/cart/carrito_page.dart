@@ -14,10 +14,32 @@ class CarritoPage extends StatefulWidget {
 class _CarritoPageState extends State<CarritoPage> {
   final cart = CartService();
 
+  final TextEditingController _nombreClienteController = TextEditingController();
+  final TextEditingController _formaPagoController = TextEditingController(text: 'Efectivo');
+  final TextEditingController _segundoRecogeController = TextEditingController();
+  DateTime? _fechaEntrega;
+
+  @override
+  void dispose() {
+    _nombreClienteController.dispose();
+    _formaPagoController.dispose();
+    _segundoRecogeController.dispose();
+    super.dispose();
+  }
+
   void _refrescar() => setState(() {});
 
   Future<void> _confirmarPedido() async {
     if (cart.items.isEmpty) return;
+
+    final nombreCliente = _nombreClienteController.text.trim();
+    if (nombreCliente.isEmpty || _fechaEntrega == null) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Error: Nombre de cliente y fecha/hora de entrega son obligatorios"),
+          backgroundColor: Colors.redAccent,
+      ));
+      return;
+    }
 
     try {
       final user = Supabase.instance.client.auth.currentUser;
@@ -32,6 +54,10 @@ class _CarritoPageState extends State<CarritoPage> {
         'usuario_id': user.id,
         'total': cart.total,
         'estado': 'pendiente',
+        'nombre_cliente': nombreCliente,
+        'forma_pago': _formaPagoController.text.trim(),
+        'fecha_entrega': _fechaEntrega!.toIso8601String(),
+        'segundo_recoge': _segundoRecogeController.text.trim().isNotEmpty ? _segundoRecogeController.text.trim() : null,
       }).select().single();
 
       final detalles = cart.items
@@ -82,13 +108,22 @@ class _CarritoPageState extends State<CarritoPage> {
           : Column(
               children: [
                 Expanded(
-                  child: ListView.builder(
+                  child: ListView(
                     padding: const EdgeInsets.all(15),
-                    itemCount: cart.items.length,
-                    itemBuilder: (context, i) {
-                      final item = cart.items[i];
-                      return _buildCartItem(item);
-                    },
+                    children: [
+                      ...cart.items.map((item) => _buildCartItem(item)),
+                      const SizedBox(height: 20),
+                      const Text("Datos del Pedido", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                      const SizedBox(height: 15),
+                      _buildTextField("Nombre del Cliente *", _nombreClienteController),
+                      const SizedBox(height: 10),
+                      _buildTextField("Forma de Pago", _formaPagoController),
+                      const SizedBox(height: 10),
+                      _buildTextField("Segundo a Recoger (Opcional)", _segundoRecogeController),
+                      const SizedBox(height: 10),
+                      _buildDatePicker(),
+                      const SizedBox(height: 20),
+                    ],
                   ),
                 ),
                 _buildFooter(),
@@ -108,6 +143,67 @@ class _CarritoPageState extends State<CarritoPage> {
           const Text("Tu carrito está vacío",
               style: TextStyle(color: Colors.grey, fontSize: 18)),
         ],
+      ),
+    );
+  }
+
+  Widget _buildTextField(String label, TextEditingController controller) {
+    return TextField(
+      controller: controller,
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.grey),
+        filled: true,
+        fillColor: const Color(0xFF1E1E1E),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+      ),
+    );
+  }
+
+  Widget _buildDatePicker() {
+    return GestureDetector(
+      onTap: () async {
+        final date = await showDatePicker(
+          context: context,
+          initialDate: DateTime.now(),
+          firstDate: DateTime.now(),
+          lastDate: DateTime.now().add(const Duration(days: 365)),
+        );
+        if (date != null) {
+          if (!mounted) return;
+          final time = await showTimePicker(
+            context: context,
+            initialTime: TimeOfDay.now(),
+          );
+          if (time != null) {
+            setState(() {
+              _fechaEntrega = DateTime(
+                date.year,
+                date.month,
+                date.day,
+                time.hour,
+                time.minute,
+              );
+            });
+          }
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+        decoration: BoxDecoration(color: const Color(0xFF1E1E1E), borderRadius: BorderRadius.circular(10)),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              _fechaEntrega == null 
+                  ? "Fecha y Hora de Entrega *" 
+                  : "Entrega: ${_fechaEntrega!.day}/${_fechaEntrega!.month}/${_fechaEntrega!.year} a las ${_fechaEntrega!.hour.toString().padLeft(2, '0')}:${_fechaEntrega!.minute.toString().padLeft(2, '0')}",
+              style: TextStyle(color: _fechaEntrega == null ? Colors.grey : Colors.white, fontSize: 16),
+            ),
+            const Icon(Icons.access_time, color: Colors.blue),
+          ],
+        ),
       ),
     );
   }
