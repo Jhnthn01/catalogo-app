@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:catalogo_digital_app/features/cart/resumen_pedido_page.dart';
@@ -17,13 +19,15 @@ class _CarritoPageState extends State<CarritoPage> {
   final TextEditingController _nombreClienteController = TextEditingController();
   final TextEditingController _formaPagoController = TextEditingController(text: 'Efectivo');
   final TextEditingController _segundoRecogeController = TextEditingController();
-  DateTime? _fechaEntrega;
+  final TextEditingController _fechaDateController = TextEditingController();
+  TimeOfDay? _horaEntrega;
 
   @override
   void dispose() {
     _nombreClienteController.dispose();
     _formaPagoController.dispose();
     _segundoRecogeController.dispose();
+    _fechaDateController.dispose();
     super.dispose();
   }
 
@@ -33,13 +37,42 @@ class _CarritoPageState extends State<CarritoPage> {
     if (cart.items.isEmpty) return;
 
     final nombreCliente = _nombreClienteController.text.trim();
-    if (nombreCliente.isEmpty || _fechaEntrega == null) {
+    final dateStr = _fechaDateController.text.trim();
+    if (nombreCliente.isEmpty || dateStr.isEmpty || _horaEntrega == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Error: Nombre de cliente y fecha/hora de entrega son obligatorios"),
+          content: Text("Error: Nombre de cliente, fecha y hora de entrega son obligatorios"),
           backgroundColor: Colors.redAccent,
       ));
       return;
     }
+
+    DateTime parsedDate;
+    try {
+      parsedDate = DateFormat('dd/MM/yyyy').parseStrict(dateStr);
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Error: Formato inválido (dd/mm/yyyy) o fecha inexistente"),
+          backgroundColor: Colors.redAccent,
+      ));
+      return;
+    }
+
+    final today = DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+    if (parsedDate.isBefore(today)) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Error: La fecha no puede ser en el pasado"),
+          backgroundColor: Colors.redAccent,
+      ));
+      return;
+    }
+
+    final DateTime fechaEntregaFinal = DateTime(
+      parsedDate.year,
+      parsedDate.month,
+      parsedDate.day,
+      _horaEntrega!.hour,
+      _horaEntrega!.minute,
+    );
 
     try {
       final user = Supabase.instance.client.auth.currentUser;
@@ -56,7 +89,7 @@ class _CarritoPageState extends State<CarritoPage> {
         'estado': 'pendiente',
         'nombre_cliente': nombreCliente,
         'forma_pago': _formaPagoController.text.trim(),
-        'fecha_entrega': _fechaEntrega!.toIso8601String(),
+        'fecha_entrega': fechaEntregaFinal.toIso8601String(),
         'segundo_recoge': _segundoRecogeController.text.trim().isNotEmpty ? _segundoRecogeController.text.trim() : null,
       }).select().single();
 
@@ -121,7 +154,7 @@ class _CarritoPageState extends State<CarritoPage> {
                       const SizedBox(height: 10),
                       _buildTextField("Segundo a Recoger (Opcional)", _segundoRecogeController),
                       const SizedBox(height: 10),
-                      _buildDatePicker(),
+                      _buildDateTimePicker(),
                       const SizedBox(height: 20),
                     ],
                   ),
@@ -161,50 +194,119 @@ class _CarritoPageState extends State<CarritoPage> {
     );
   }
 
-  Widget _buildDatePicker() {
-    return GestureDetector(
-      onTap: () async {
-        final date = await showDatePicker(
-          context: context,
-          initialDate: DateTime.now(),
-          firstDate: DateTime.now(),
-          lastDate: DateTime.now().add(const Duration(days: 365)),
-        );
-        if (date != null) {
-          if (!mounted) return;
-          final time = await showTimePicker(
-            context: context,
-            initialTime: TimeOfDay.now(),
-          );
-          if (time != null) {
-            setState(() {
-              _fechaEntrega = DateTime(
-                date.year,
-                date.month,
-                date.day,
-                time.hour,
-                time.minute,
-              );
-            });
-          }
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-        decoration: BoxDecoration(color: const Color(0xFF1E1E1E), borderRadius: BorderRadius.circular(10)),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Text(
-              _fechaEntrega == null 
-                  ? "Fecha y Hora de Entrega *" 
-                  : "Entrega: ${_fechaEntrega!.day}/${_fechaEntrega!.month}/${_fechaEntrega!.year} a las ${_fechaEntrega!.hour.toString().padLeft(2, '0')}:${_fechaEntrega!.minute.toString().padLeft(2, '0')}",
-              style: TextStyle(color: _fechaEntrega == null ? Colors.grey : Colors.white, fontSize: 16),
+  Widget _buildDateTimePicker() {
+    return Row(
+      children: [
+        Expanded(
+          flex: 3,
+          child: TextFormField(
+            controller: _fechaDateController,
+            keyboardType: TextInputType.datetime,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'[0-9/]')),
+              _DateTextFormatter(),
+            ],
+            style: const TextStyle(color: Colors.white),
+            decoration: InputDecoration(
+              labelText: "Fecha (dd/mm/yyyy) *",
+              labelStyle: const TextStyle(color: Colors.grey, fontSize: 13),
+              filled: true,
+              fillColor: const Color(0xFF1E1E1E),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.calendar_month, color: Colors.blue),
+                onPressed: () async {
+                  final date = await showDatePicker(
+                    context: context,
+                    initialDate: DateTime.now(),
+                    firstDate: DateTime.now(),
+                    lastDate: DateTime.now().add(const Duration(days: 365)),
+                    builder: (context, child) {
+                      return Theme(
+                        data: Theme.of(context).copyWith(
+                          colorScheme: const ColorScheme.dark(
+                            primary: Colors.blue,
+                            onPrimary: Colors.white,
+                            surface: Color(0xFF1E1E1E),
+                            onSurface: Colors.white,
+                          ),
+                        ),
+                        child: child!,
+                      );
+                    },
+                  );
+                  if (date != null) {
+                    final formattedDate = DateFormat('dd/MM/yyyy').format(date);
+                    _fechaDateController.text = formattedDate;
+                  }
+                },
+              ),
             ),
-            const Icon(Icons.access_time, color: Colors.blue),
-          ],
+          ),
         ),
-      ),
+        const SizedBox(width: 10),
+        Expanded(
+          flex: 2,
+          child: GestureDetector(
+            onTap: () async {
+              final List<TimeOfDay> allowedTimes = [];
+              for (int h = 7; h <= 18; h++) {
+                allowedTimes.add(TimeOfDay(hour: h, minute: 0));
+                if (h < 18) allowedTimes.add(TimeOfDay(hour: h, minute: 30));
+              }
+
+              final time = await showDialog<TimeOfDay>(
+                context: context,
+                builder: (context) {
+                  return AlertDialog(
+                    backgroundColor: const Color(0xFF1E1E1E),
+                    title: const Text("Hora (07:00 - 18:00)", style: TextStyle(color: Colors.white, fontSize: 16)),
+                    content: SizedBox(
+                      width: double.maxFinite,
+                      height: 300,
+                      child: ListView.builder(
+                        itemCount: allowedTimes.length,
+                        itemBuilder: (context, index) {
+                          final t = allowedTimes[index];
+                          final isAM = t.hour < 12;
+                          final displayHour = t.hour == 12 ? 12 : t.hour % 12;
+                          final hStr = displayHour == 0 ? "12" : displayHour.toString().padLeft(2, '0');
+                          final mStr = t.minute.toString().padLeft(2, '0');
+                          final amPm = isAM ? "AM" : "PM";
+                          return ListTile(
+                            title: Text("$hStr:$mStr $amPm", style: const TextStyle(color: Colors.white70)),
+                            onTap: () => Navigator.pop(context, t),
+                          );
+                        },
+                      ),
+                    ),
+                  );
+                },
+              );
+
+              if (time != null) {
+                setState(() => _horaEntrega = time);
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
+              decoration: BoxDecoration(color: const Color(0xFF1E1E1E), borderRadius: BorderRadius.circular(10)),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    _horaEntrega == null 
+                        ? "Hora *" 
+                        : "${_horaEntrega!.hour == 12 ? 12 : _horaEntrega!.hour % 12 == 0 ? 12 : _horaEntrega!.hour % 12}:${_horaEntrega!.minute.toString().padLeft(2, '0')} ${_horaEntrega!.hour < 12 ? 'AM' : 'PM'}",
+                    style: TextStyle(color: _horaEntrega == null ? Colors.grey : Colors.white, fontSize: 13),
+                  ),
+                  const Icon(Icons.access_time, color: Colors.blue, size: 20),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
@@ -377,6 +479,33 @@ class _CarritoPageState extends State<CarritoPage> {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _DateTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    String text = newValue.text;
+    if (newValue.selection.baseOffset == 0) return newValue;
+
+    text = text.replaceAll(RegExp(r'[^0-9]'), '');
+
+    if (text.length > 8) {
+      text = text.substring(0, 8);
+    }
+
+    String formatted = '';
+    for (int i = 0; i < text.length; i++) {
+      if (i == 2 || i == 4) {
+        formatted += '/';
+      }
+      formatted += text[i];
+    }
+
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
     );
   }
 }

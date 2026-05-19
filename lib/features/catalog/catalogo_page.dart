@@ -89,7 +89,7 @@ class _CatalogoPageState extends State<CatalogoPage> {
 
       if (_searchQuery.isNotEmpty) {
         query = query.or(
-            'descripcion_1.ilike.%$_searchQuery%,sku.ilike.%$_searchQuery%,upc.ilike.%$_searchQuery%,alu.ilike.%$_searchQuery%');
+            'descripcion_1.ilike.%$_searchQuery%,descripcion_2.ilike.%$_searchQuery%,sku.ilike.%$_searchQuery%,upc.ilike.%$_searchQuery%,alu.ilike.%$_searchQuery%');
       }
 
       if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
