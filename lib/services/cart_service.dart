@@ -5,12 +5,14 @@ class CartItem {
   final String nombre;
   final double precio;
   int cantidad;
+  int stockActual;
 
   CartItem({
     required this.id,
     required this.nombre,
     required this.precio,
     required this.cantidad,
+    this.stockActual = 0,
   });
 }
 
@@ -28,16 +30,18 @@ class CartService {
   double get total =>
       _items.fold(0, (sum, item) => sum + (item.precio * item.cantidad));
 
-  void agregarProducto(Map<String, dynamic> producto, int cantidad) {
+  void agregarProducto(Map<String, dynamic> producto, int cantidad, {int stockActual = 0}) {
     final index = _items.indexWhere((item) => item.id == producto['id']);
     if (index >= 0) {
       _items[index].cantidad += cantidad;
+      _items[index].stockActual = stockActual;
     } else {
       _items.add(CartItem(
         id: producto['id'],
         nombre: producto['descripcion_1'],
         precio: (producto['precio_venta'] as num).toDouble(),
         cantidad: cantidad,
+        stockActual: stockActual,
       ));
     }
     itemsCountNotifier.value = _items.length;

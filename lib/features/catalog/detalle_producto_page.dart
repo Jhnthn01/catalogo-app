@@ -131,6 +131,14 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     setState(() => _totalVenta = precio * _cantidadAReservar);
   }
 
+  int get _stockTotal {
+    int sum = 0;
+    for (var s in _stocks) {
+      sum += (s['stock'] as num).toInt();
+    }
+    return sum;
+  }
+
   @override
   void dispose() {
     TiendaService().tiendaSeleccionadaId.removeListener(_onTiendaChanged);
@@ -394,7 +402,28 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                 enabled: false,
               ),
             ],
-            const SizedBox(height: 40),
+            if (_stockTotal <= 0 && !esModoInventario && _stocks.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(bottom: 10),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: Colors.orangeAccent.withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.orangeAccent, width: 1.5),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.warning_amber_rounded, color: Colors.orangeAccent, size: 20),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        "⚠️ Stock del sistema en 0. Se procederá con venta en físico y el pedido será marcado para regularización.",
+                        style: TextStyle(color: Colors.orangeAccent, fontSize: 12, fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             SizedBox(
               width: double.infinity,
               child: _botonAccionPrincipal(
@@ -472,34 +501,68 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     );
   }
 
-  // CORRECCIÓN 2: Eliminada la ñ del nombre de la función interna
   void _agregarAlPedido() {
     if (_cantidadAReservar <= 0) return;
+    final bool esSobreventa = _cantidadAReservar > _stockTotal;
     CartService().agregarProducto(
       widget.producto,
       _cantidadAReservar,
+      stockActual: _stockTotal,
     );
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          '¡${_cantidadAReservar}x ${widget.producto['descripcion_1']} añadido!',
-        ),
-        backgroundColor: Colors.green.shade800,
-        duration: const Duration(seconds: 3),
-        action: SnackBarAction(
-          label: 'VER CARRITO',
-          textColor: Colors.white,
-          onPressed: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const CarritoPage(),
+    if (esSobreventa) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded, color: Colors.white),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  '⚠️ ${_cantidadAReservar}x ${widget.producto['descripcion_1']} añadido — STOCK EN 0, venta en físico.',
+                  style: const TextStyle(color: Colors.white),
+                ),
               ),
-            );
-          },
+            ],
+          ),
+          backgroundColor: Colors.deepOrange.shade700,
+          duration: const Duration(seconds: 4),
+          action: SnackBarAction(
+            label: 'VER CARRITO',
+            textColor: Colors.white,
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CarritoPage(),
+                ),
+              );
+            },
+          ),
         ),
-      ),
-    );
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '¡${_cantidadAReservar}x ${widget.producto['descripcion_1']} añadido!',
+          ),
+          backgroundColor: Colors.green.shade800,
+          duration: const Duration(seconds: 3),
+          action: SnackBarAction(
+            label: 'VER CARRITO',
+            textColor: Colors.white,
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CarritoPage(),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _mostrarDialogoCantidad({Function()? onSuccess}) async {

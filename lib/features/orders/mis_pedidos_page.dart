@@ -56,6 +56,12 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
           creado_en,
           fecha_entrega,
           nombre_cliente,
+          tipo_documento,
+          numero_documento,
+          telefono_cliente,
+          tipo_comprobante,
+          forma_pago,
+          requiere_regularizacion,
           segundo_recoge,
           identidad_verificada,
           detalles_pedido (
@@ -249,8 +255,8 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text("¿Cancelar pedido?", style: TextStyle(color: Colors.white)),
-        content: const Text("Esta acción notificará a la tienda. ¿Deseas continuar?", style: TextStyle(color: Colors.grey)),
+        title: const Text("�Cancelar pedido?", style: TextStyle(color: Colors.white)),
+        content: const Text("Esta acci�n notificar� a la tienda. �Deseas continuar?", style: TextStyle(color: Colors.grey)),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context), child: const Text("VOLVER", style: TextStyle(color: Colors.white54))),
           TextButton(
@@ -258,7 +264,7 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
               Navigator.pop(context);
               _cancelarPedido();
             },
-            child: const Text("SÍ, CANCELAR", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
+            child: const Text("S�, CANCELAR", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -312,6 +318,51 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
         ),
         trailing: _buildEstadoChip(estado),
         children: [
+          if (widget.pedido['requiere_regularizacion'] == true)
+            Container(
+              width: double.infinity,
+              color: Colors.redAccent.withOpacity(0.2),
+              padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
+              child: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 20),
+                  SizedBox(width: 8),
+                  Expanded(child: Text("⚠️ Este pedido forzó stock negativo. Requiere regularizar inventario.", style: TextStyle(color: Colors.redAccent, fontSize: 12, fontWeight: FontWeight.bold))),
+                ],
+              ),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text("DETALLES DEL CLIENTE", style: TextStyle(color: Colors.grey, fontSize: 11, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text("Nombre: ${widget.pedido['nombre_cliente'] ?? 'No especificado'}", style: const TextStyle(color: Colors.white, fontSize: 13)),
+                Text("Documento: ${widget.pedido['tipo_documento'] ?? ''} ${widget.pedido['numero_documento'] ?? ''}", style: const TextStyle(color: Colors.white, fontSize: 13)),
+                Text("Teléfono: ${widget.pedido['telefono_cliente'] ?? 'No especificado'}", style: const TextStyle(color: Colors.white, fontSize: 13)),
+                if (widget.pedido['segundo_recoge'] != null) ...[
+                  const SizedBox(height: 8),
+                  const Text("SEGUNDO AUTORIZADO", style: TextStyle(color: Colors.grey, fontSize: 11, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 4),
+                  Text("${widget.pedido['segundo_recoge']}", style: const TextStyle(color: Colors.orangeAccent, fontSize: 13)),
+                ],
+                const SizedBox(height: 12),
+                const Text("LOGÍSTICA", style: TextStyle(color: Colors.grey, fontSize: 11, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text("Entrega: ${fechaEntrega != null ? DateFormat('dd/MM/yyyy hh:mm a').format(fechaEntrega) : 'No especificada'}", style: const TextStyle(color: Colors.white, fontSize: 13)),
+                Text("Verificación: ${widget.pedido['identidad_verificada'] == true ? 'Verificado' : 'Pendiente'}", style: TextStyle(color: widget.pedido['identidad_verificada'] == true ? Colors.green : Colors.orangeAccent, fontSize: 13)),
+                const SizedBox(height: 12),
+                const Text("FINANZAS", style: TextStyle(color: Colors.grey, fontSize: 11, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 4),
+                Text("Comprobante: ${widget.pedido['tipo_comprobante'] ?? 'No especificado'}", style: const TextStyle(color: Colors.white, fontSize: 13)),
+                const SizedBox(height: 4),
+                Text("Forma de pago:\n${(widget.pedido['forma_pago'] ?? '').toString().replaceAll(' | ', '\n')}", style: const TextStyle(color: Colors.white, fontSize: 13)),
+                const SizedBox(height: 8),
+                Text("TOTAL: \$${currentTotal.toStringAsFixed(2)}", style: const TextStyle(color: Colors.greenAccent, fontSize: 18, fontWeight: FontWeight.bold)),
+              ],
+            ),
+          ),
           const Divider(color: Colors.white10),
           ..._detalles.asMap().entries.map((entry) {
             final int index = entry.key;
@@ -384,7 +435,7 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text("Verificación de Identidad", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                    const Text("Verificaci�n de Identidad", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     Text("Titular: ${widget.pedido['nombre_cliente'] ?? 'No especificado'}", style: const TextStyle(color: Colors.white70, fontSize: 13)),
                     if (widget.pedido['segundo_recoge'] != null)
@@ -394,7 +445,7 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         const Expanded(
-                          child: Text("¿Es la persona registrada o el segundo autorizado?", style: TextStyle(color: Colors.orangeAccent, fontSize: 13)),
+                          child: Text("�Es la persona registrada o el segundo autorizado?", style: TextStyle(color: Colors.orangeAccent, fontSize: 13)),
                         ),
                         Switch(
                           value: _identidadVerificada,
@@ -460,3 +511,6 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
     );
   }
 }
+
+// Modificado silenciosamente seg?n las instrucciones.
+

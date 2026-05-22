@@ -17,17 +17,33 @@ class _CarritoPageState extends State<CarritoPage> {
   final cart = CartService();
 
   final TextEditingController _nombreClienteController = TextEditingController();
+  final TextEditingController _tipoDocumentoController = TextEditingController(text: 'DNI');
+  final TextEditingController _numeroDocumentoController = TextEditingController();
+  final TextEditingController _telefonoClienteController = TextEditingController();
+  final TextEditingController _tipoComprobanteController = TextEditingController(text: 'Boleta');
   final TextEditingController _formaPagoController = TextEditingController(text: 'Efectivo');
   final TextEditingController _segundoRecogeController = TextEditingController();
   final TextEditingController _fechaDateController = TextEditingController();
   TimeOfDay? _horaEntrega;
 
+  bool _isPagoCombinado = false;
+  final List<Map<String, dynamic>> _pagosCombinados = [
+    {'metodo': 'Efectivo', 'montoController': TextEditingController()}
+  ];
+
   @override
   void dispose() {
     _nombreClienteController.dispose();
+    _tipoDocumentoController.dispose();
+    _numeroDocumentoController.dispose();
+    _telefonoClienteController.dispose();
+    _tipoComprobanteController.dispose();
     _formaPagoController.dispose();
     _segundoRecogeController.dispose();
     _fechaDateController.dispose();
+    for (var p in _pagosCombinados) {
+      (p['montoController'] as TextEditingController).dispose();
+    }
     super.dispose();
   }
 
@@ -37,13 +53,48 @@ class _CarritoPageState extends State<CarritoPage> {
     if (cart.items.isEmpty) return;
 
     final nombreCliente = _nombreClienteController.text.trim();
+    final numeroDocumento = _numeroDocumentoController.text.trim();
+    final telefonoCliente = _telefonoClienteController.text.trim();
     final dateStr = _fechaDateController.text.trim();
-    if (nombreCliente.isEmpty || dateStr.isEmpty || _horaEntrega == null) {
+
+    if (nombreCliente.isEmpty || numeroDocumento.isEmpty || telefonoCliente.isEmpty || dateStr.isEmpty || _horaEntrega == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Error: Nombre de cliente, fecha y hora de entrega son obligatorios"),
+          content: Text("Error: Nombre, Nro. Documento, Teléfono, fecha y hora son obligatorios"),
           backgroundColor: Colors.redAccent,
       ));
       return;
+    }
+
+    if (telefonoCliente.length != 9) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text("Error: El teléfono debe tener 9 dígitos"),
+          backgroundColor: Colors.redAccent,
+      ));
+      return;
+    }
+
+    String formaPagoFinal = '';
+    
+    if (_isPagoCombinado) {
+      double suma = 0;
+      List<String> partes = [];
+      for (var p in _pagosCombinados) {
+        final ctrl = p['montoController'] as TextEditingController;
+        final monto = double.tryParse(ctrl.text.trim()) ?? 0.0;
+        suma += monto;
+        partes.add("${p['metodo']}: S/.${monto.toStringAsFixed(2)}");
+      }
+      
+      if (suma.toStringAsFixed(2) != cart.total.toStringAsFixed(2)) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text("Error: La suma de los pagos debe coincidir con el total del pedido"),
+            backgroundColor: Colors.redAccent,
+        ));
+        return;
+      }
+      formaPagoFinal = partes.join(" | ");
+    } else {
+      formaPagoFinal = _formaPagoController.text.trim();
     }
 
     DateTime parsedDate;
@@ -77,6 +128,14 @@ class _CarritoPageState extends State<CarritoPage> {
     try {
       final user = Supabase.instance.client.auth.currentUser;
 
+      bool requiereRegularizacion = false;
+      for (var item in cart.items) {
+        if (item.cantidad > item.stockActual) {
+          requiereRegularizacion = true;
+          break;
+        }
+      }
+
       final perfilData = await Supabase.instance.client
           .from('perfiles')
           .select()
@@ -88,9 +147,14 @@ class _CarritoPageState extends State<CarritoPage> {
         'total': cart.total,
         'estado': 'pendiente',
         'nombre_cliente': nombreCliente,
-        'forma_pago': _formaPagoController.text.trim(),
+        'tipo_documento': _tipoDocumentoController.text.trim(),
+        'numero_documento': numeroDocumento,
+        'telefono_cliente': telefonoCliente,
+        'tipo_comprobante': _tipoComprobanteController.text.trim(),
+        'forma_pago': formaPagoFinal,
         'fecha_entrega': fechaEntregaFinal.toIso8601String(),
         'segundo_recoge': _segundoRecogeController.text.trim().isNotEmpty ? _segundoRecogeController.text.trim() : null,
+        'requiere_regularizacion': requiereRegularizacion,
       }).select().single();
 
       final detalles = cart.items
@@ -150,7 +214,43 @@ class _CarritoPageState extends State<CarritoPage> {
                       const SizedBox(height: 15),
                       _buildTextField("Nombre del Cliente *", _nombreClienteController),
                       const SizedBox(height: 10),
-                      _buildTextField("Forma de Pago", _formaPagoController),
+                      _buildDropdown("Tipo de Documento", _tipoDocumentoController, ['DNI', 'RUC', 'CE']),
+                      const SizedBox(height: 10),
+                      _buildTextFieldNum("Número de Documento *", _numeroDocumentoController),
+                      const SizedBox(height: 10),
+                      _buildTextFieldNumLength("Teléfono del Cliente *", _telefonoClienteController, 9),
+                      const SizedBox(height: 10),
+                      _buildDropdown("Tipo de Comprobante", _tipoComprobanteController, ['Boleta', 'Factura', 'Nota de Venta']),
+                      const SizedBox(height: 10),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Text("Forma de Pago", style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          SegmentedButton<bool>(
+                            segments: const [
+                              ButtonSegment<bool>(value: false, label: Text('Único', style: TextStyle(fontSize: 12))),
+                              ButtonSegment<bool>(value: true, label: Text('Combinado', style: TextStyle(fontSize: 12))),
+                            ],
+                            selected: {_isPagoCombinado},
+                            onSelectionChanged: (Set<bool> newSelection) {
+                              setState(() {
+                                _isPagoCombinado = newSelection.first;
+                              });
+                            },
+                            style: SegmentedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              selectedForegroundColor: Colors.white,
+                              selectedBackgroundColor: Colors.blue.withOpacity(0.3),
+                              foregroundColor: Colors.grey,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 10),
+                      if (!_isPagoCombinado)
+                        _buildDropdown("Método de Pago", _formaPagoController, ['Efectivo', 'Tarjeta de Crédito/Débito', 'Yape', 'Plin', 'Transferencia Bancaria'])
+                      else
+                        _buildPagoCombinado(),
                       const SizedBox(height: 10),
                       _buildTextField("Segundo a Recoger (Opcional)", _segundoRecogeController),
                       const SizedBox(height: 10),
@@ -190,6 +290,149 @@ class _CarritoPageState extends State<CarritoPage> {
         filled: true,
         fillColor: const Color(0xFF1E1E1E),
         border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+      ),
+    );
+  }
+
+  Widget _buildTextFieldNum(String label, TextEditingController controller) {
+    return TextField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.grey),
+        filled: true,
+        fillColor: const Color(0xFF1E1E1E),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+      ),
+    );
+  }
+
+  Widget _buildTextFieldNumLength(String label, TextEditingController controller, int length) {
+    return TextField(
+      controller: controller,
+      keyboardType: TextInputType.number,
+      inputFormatters: [
+        FilteringTextInputFormatter.digitsOnly,
+        LengthLimitingTextInputFormatter(length),
+      ],
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.grey),
+        filled: true,
+        fillColor: const Color(0xFF1E1E1E),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+      ),
+    );
+  }
+
+  Widget _buildDropdown(String label, TextEditingController controller, List<String> options) {
+    return DropdownButtonFormField<String>(
+      value: controller.text.isNotEmpty ? controller.text : options.first,
+      dropdownColor: const Color(0xFF2C2C2C),
+      style: const TextStyle(color: Colors.white),
+      decoration: InputDecoration(
+        labelText: label,
+        labelStyle: const TextStyle(color: Colors.grey),
+        filled: true,
+        fillColor: const Color(0xFF1E1E1E),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+      ),
+      items: options.map((opt) {
+        return DropdownMenuItem(value: opt, child: Text(opt));
+      }).toList(),
+      onChanged: (val) {
+        if (val != null) controller.text = val;
+      },
+    );
+  }
+
+  Widget _buildPagoCombinado() {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF1E1E1E),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          ..._pagosCombinados.asMap().entries.map((entry) {
+            final index = entry.key;
+            final pago = entry.value;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    flex: 3,
+                    child: DropdownButtonFormField<String>(
+                      isExpanded: true,
+                      value: pago['metodo'],
+                      dropdownColor: const Color(0xFF2C2C2C),
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        filled: true,
+                        fillColor: const Color(0xFF2C2C2C),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                      ),
+                      items: ['Efectivo', 'Tarjeta de Crédito/Débito', 'Yape', 'Plin', 'Transferencia Bancaria'].map((opt) {
+                        return DropdownMenuItem(value: opt, child: Text(opt, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis));
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) setState(() => _pagosCombinados[index]['metodo'] = val);
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    flex: 2,
+                    child: TextField(
+                      controller: pago['montoController'],
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        labelText: "Monto",
+                        labelStyle: const TextStyle(color: Colors.grey, fontSize: 12),
+                        filled: true,
+                        fillColor: const Color(0xFF2C2C2C),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                      ),
+                    ),
+                  ),
+                  if (_pagosCombinados.length > 1)
+                    IconButton(
+                      icon: const Icon(Icons.remove_circle, color: Colors.redAccent),
+                      onPressed: () {
+                        setState(() {
+                          (pago['montoController'] as TextEditingController).dispose();
+                          _pagosCombinados.removeAt(index);
+                        });
+                      },
+                    )
+                  else
+                    const SizedBox(width: 48), // Spacer to keep alignment
+                ],
+              ),
+            );
+          }),
+          TextButton.icon(
+            icon: const Icon(Icons.add, color: Colors.blue),
+            label: const Text("Añadir Método", style: TextStyle(color: Colors.blue)),
+            onPressed: () {
+              setState(() {
+                _pagosCombinados.add({
+                  'metodo': 'Efectivo',
+                  'montoController': TextEditingController()
+                });
+              });
+            },
+          )
+        ],
       ),
     );
   }

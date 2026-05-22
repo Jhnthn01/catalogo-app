@@ -282,10 +282,17 @@ class _InventarioPageState extends State<InventarioPage> {
 
                           final prod = _productos[index];
                           final int stock = _stockTotalDesdeProducto(prod);
+                          final bool urgencia = stock <= 0;
 
                           return Card(
                             color: const Color(0xFF1E1E1E),
                             margin: const EdgeInsets.only(bottom: 8),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              side: urgencia
+                                  ? const BorderSide(color: Colors.orangeAccent, width: 2)
+                                  : BorderSide.none,
+                            ),
                             child: ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: _getColorStock(stock),
@@ -301,12 +308,29 @@ class _InventarioPageState extends State<InventarioPage> {
                                 style: const TextStyle(
                                     color: Colors.white, fontSize: 14),
                               ),
-                              subtitle: Text(
-                                '\$${prod['precio_venta']}',
-                                style: const TextStyle(
-                                  color: Colors.blue,
-                                  fontWeight: FontWeight.w500,
-                                ),
+                              subtitle: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '\$${prod['precio_venta']}',
+                                    style: const TextStyle(
+                                      color: Colors.blue,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  if (urgencia)
+                                    Container(
+                                      margin: const EdgeInsets.only(top: 4),
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.orangeAccent.withOpacity(0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: Colors.orangeAccent),
+                                      ),
+                                      child: const Text("⚠️ STOCK EN 0 - REQUERE REGULARIZAR", style: TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold)),
+                                    ),
+                                ],
                               ),
                               trailing: IconButton(
                                 icon: const Icon(Icons.edit_note,
