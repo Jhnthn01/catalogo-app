@@ -395,7 +395,7 @@ class _CatalogoPageState extends State<CatalogoPage> {
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
                   Text(
-                    "\$${producto['precio_venta'] ?? '0.00'}",
+                    "S/.${producto['precio_venta'] ?? '0.00'}",
                     style: const TextStyle(
                         color: Colors.blue,
                         fontWeight: FontWeight.bold,

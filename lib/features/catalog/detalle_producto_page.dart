@@ -397,7 +397,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
               _buildTextField(
                 "SUBTOTAL",
                 TextEditingController(
-                  text: "\$ ${_totalVenta.toStringAsFixed(2)}",
+                  text: "S/. ${_totalVenta.toStringAsFixed(2)}",
                 ),
                 enabled: false,
               ),

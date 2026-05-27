@@ -313,7 +313,7 @@ class _InventarioPageState extends State<InventarioPage> {
                                 children: [
                                   const SizedBox(height: 4),
                                   Text(
-                                    '\$${prod['precio_venta']}',
+                                    'S/.${prod['precio_venta']}',
                                     style: const TextStyle(
                                       color: Colors.blue,
                                       fontWeight: FontWeight.w500,

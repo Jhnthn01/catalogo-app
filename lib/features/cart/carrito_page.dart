@@ -3,7 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'package:catalogo_digital_app/features/cart/resumen_pedido_page.dart';
+import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
 
 class CarritoPage extends StatefulWidget {
@@ -17,6 +17,7 @@ class _CarritoPageState extends State<CarritoPage> {
   final cart = CartService();
 
   final TextEditingController _nombreClienteController = TextEditingController();
+  final TextEditingController _direccionController = TextEditingController();
   final TextEditingController _tipoDocumentoController = TextEditingController(text: 'DNI');
   final TextEditingController _numeroDocumentoController = TextEditingController();
   final TextEditingController _telefonoClienteController = TextEditingController();
@@ -34,6 +35,7 @@ class _CarritoPageState extends State<CarritoPage> {
   @override
   void dispose() {
     _nombreClienteController.dispose();
+    _direccionController.dispose();
     _tipoDocumentoController.dispose();
     _numeroDocumentoController.dispose();
     _telefonoClienteController.dispose();
@@ -53,13 +55,14 @@ class _CarritoPageState extends State<CarritoPage> {
     if (cart.items.isEmpty) return;
 
     final nombreCliente = _nombreClienteController.text.trim();
+    final direccionCliente = _direccionController.text.trim();
     final numeroDocumento = _numeroDocumentoController.text.trim();
     final telefonoCliente = _telefonoClienteController.text.trim();
     final dateStr = _fechaDateController.text.trim();
 
-    if (nombreCliente.isEmpty || numeroDocumento.isEmpty || telefonoCliente.isEmpty || dateStr.isEmpty || _horaEntrega == null) {
+    if (nombreCliente.isEmpty || direccionCliente.isEmpty || numeroDocumento.isEmpty || telefonoCliente.isEmpty || dateStr.isEmpty || _horaEntrega == null) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text("Error: Nombre, Nro. Documento, Teléfono, fecha y hora son obligatorios"),
+          content: Text("Error: Nombre, Dirección, Nro. Documento, Teléfono, fecha y hora son obligatorios"),
           backgroundColor: Colors.redAccent,
       ));
       return;
@@ -136,17 +139,12 @@ class _CarritoPageState extends State<CarritoPage> {
         }
       }
 
-      final perfilData = await Supabase.instance.client
-          .from('perfiles')
-          .select()
-          .eq('id', user!.id)
-          .single();
-
       final pedido = await Supabase.instance.client.from('pedidos').insert({
-        'usuario_id': user.id,
+        'usuario_id': user!.id,
         'total': cart.total,
         'estado': 'pendiente',
         'nombre_cliente': nombreCliente,
+        'direccion_cliente': direccionCliente,
         'tipo_documento': _tipoDocumentoController.text.trim(),
         'numero_documento': numeroDocumento,
         'telefono_cliente': telefonoCliente,
@@ -168,20 +166,19 @@ class _CarritoPageState extends State<CarritoPage> {
 
       await Supabase.instance.client.from('detalles_pedido').insert(detalles);
 
-      final itemsResumen = List<CartItem>.from(cart.items);
-      final totalResumen = cart.total;
-
       cart.limpiar();
 
       if (mounted) {
-        Navigator.push(
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("¡Pedido registrado con éxito! Pendiente de despacho.", style: TextStyle(color: Colors.white)),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => ResumenPedidoPage(
-              datosUsuario: perfilData,
-              total: totalResumen,
-              items: itemsResumen,
-            ),
+            builder: (context) => const MisPedidosPage(),
           ),
         );
       }
@@ -213,6 +210,8 @@ class _CarritoPageState extends State<CarritoPage> {
                       const Text("Datos del Pedido", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 15),
                       _buildTextField("Nombre del Cliente *", _nombreClienteController),
+                      const SizedBox(height: 10),
+                      _buildTextField("Dirección del Cliente Titular *", _direccionController),
                       const SizedBox(height: 10),
                       _buildDropdown("Tipo de Documento", _tipoDocumentoController, ['DNI', 'RUC', 'CE']),
                       const SizedBox(height: 10),
@@ -573,7 +572,7 @@ class _CarritoPageState extends State<CarritoPage> {
                         fontWeight: FontWeight.bold,
                         fontSize: 16)),
                 const SizedBox(height: 5),
-                Text("\$${item.precio.toStringAsFixed(2)} c/u",
+                Text("S/.${item.precio.toStringAsFixed(2)} c/u",
                     style: const TextStyle(color: Colors.blue, fontSize: 14)),
               ],
             ),
@@ -691,7 +690,7 @@ class _CarritoPageState extends State<CarritoPage> {
                 const Text("Total Estimado",
                     style: TextStyle(color: Colors.grey, fontSize: 16)),
                 Text(
-                  "\$${cart.total.toStringAsFixed(2)}",
+                  "S/.${cart.total.toStringAsFixed(2)}",
                   style: const TextStyle(
                       color: Colors.blue,
                       fontSize: 24,

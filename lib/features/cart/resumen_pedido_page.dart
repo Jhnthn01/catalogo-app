@@ -61,7 +61,7 @@ class ResumenPedidoPage extends StatelessWidget {
                         style: const TextStyle(color: Colors.white70),
                       ),
                       Text(
-                        "\$${(item.precio * item.cantidad).toStringAsFixed(2)}",
+                        "S/.${(item.precio * item.cantidad).toStringAsFixed(2)}",
                         style: const TextStyle(
                             color: Colors.white, fontWeight: FontWeight.bold),
                       ),
@@ -80,7 +80,7 @@ class ResumenPedidoPage extends StatelessWidget {
                       fontWeight: FontWeight.bold),
                 ),
                 Text(
-                  "\$${total.toStringAsFixed(2)}",
+                  "S/.${total.toStringAsFixed(2)}",
                   style: const TextStyle(
                       color: Colors.blue,
                       fontSize: 22,

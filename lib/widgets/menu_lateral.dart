@@ -5,6 +5,7 @@ import 'package:catalogo_digital_app/features/inventory/inventario_page.dart';
 import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
 import 'package:catalogo_digital_app/features/inventory/validar_ajustes_page.dart';
 import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
+import 'package:catalogo_digital_app/features/orders/pedidos_entregados_page.dart';
 import 'package:catalogo_digital_app/features/profile/perfil_page.dart';
 import 'package:catalogo_digital_app/features/admin/gestion_roles_page.dart';
 
@@ -167,7 +168,7 @@ class _MenuLateralState extends State<MenuLateral> {
                       color: Colors.white70,
                     ),
                     title: const Text(
-                      'Pedidos de Clientes',
+                      'Pedidos Pendientes',
                       style: TextStyle(color: Colors.white),
                     ),
                     trailing: pendingCount > 0
@@ -196,6 +197,25 @@ class _MenuLateralState extends State<MenuLateral> {
                         ),
                       );
                     },
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.assignment_turned_in,
+                  color: Colors.white70,
+                ),
+                title: const Text(
+                  'Pedidos Entregados',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const PedidosEntregadosPage(),
+                    ),
                   );
                 },
               ),
