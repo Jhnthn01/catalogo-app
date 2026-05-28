@@ -1,8 +1,12 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:catalogo_digital_app/features/orders/detalle_pedido_page.dart';
 import 'package:catalogo_digital_app/widgets/menu_lateral.dart';
+import 'package:catalogo_digital_app/features/orders/order_pdf_helper.dart';
+import 'package:catalogo_digital_app/services/cart_service.dart';
+import 'package:printing/printing.dart';
 
 class PedidosEntregadosPage extends StatefulWidget {
   const PedidosEntregadosPage({super.key});
@@ -98,6 +102,153 @@ class _PedidosEntregadosPageState extends State<PedidosEntregadosPage> {
     }
   }
 
+  Future<void> _mostrarDialogoImpresion(Map<String, dynamic> pedidoData, List<CartItem> itemsImpresion) async {
+    String formatoSeleccionado = 'ticket';
+    bool isGenerating = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              title: const Row(
+                children: [
+                  Icon(Icons.print_outlined, color: Colors.blueAccent),
+                  SizedBox(width: 10),
+                  Text("¿Imprimir o descargar?", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Elija el formato del comprobante para proceder:",
+                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                  const SizedBox(height: 15),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      children: [
+                        RadioListTile<String>(
+                          title: const Text("Ticketera (80mm)", style: TextStyle(color: Colors.white, fontSize: 14)),
+                          subtitle: const Text("Formato compacto térmico", style: TextStyle(color: Colors.grey, fontSize: 11)),
+                          value: 'ticket',
+                          groupValue: formatoSeleccionado,
+                          activeColor: Colors.blueAccent,
+                          onChanged: (val) {
+                            if (val != null) {
+                              setDialogState(() => formatoSeleccionado = val);
+                            }
+                          },
+                        ),
+                        const Divider(color: Colors.white10, height: 1),
+                        RadioListTile<String>(
+                          title: const Text("Hoja A4", style: TextStyle(color: Colors.white, fontSize: 14)),
+                          subtitle: const Text("Diseño corporativo formal", style: TextStyle(color: Colors.grey, fontSize: 11)),
+                          value: 'a4',
+                          groupValue: formatoSeleccionado,
+                          activeColor: Colors.blueAccent,
+                          onChanged: (val) {
+                            if (val != null) {
+                              setDialogState(() => formatoSeleccionado = val);
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isGenerating) ...[
+                    const SizedBox(height: 15),
+                    const Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                          SizedBox(width: 10),
+                          Text("Generando PDF...", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                  },
+                  child: const Text("CERRAR", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white12,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.download, size: 16, color: Colors.white),
+                  label: const Text("PDF", style: TextStyle(color: Colors.white)),
+                  onPressed: isGenerating
+                      ? null
+                      : () async {
+                          setDialogState(() => isGenerating = true);
+                          try {
+                            Uint8List bytes;
+                            if (formatoSeleccionado == 'a4') {
+                              bytes = await OrderPdfHelper.generateA4(pedido: pedidoData, items: itemsImpresion);
+                            } else {
+                              bytes = await OrderPdfHelper.generateTicket(pedido: pedidoData, items: itemsImpresion);
+                            }
+                            final idCorto = pedidoData['id'].toString().substring(0, 8).toUpperCase();
+                            await Printing.sharePdf(bytes: bytes, filename: 'pedido_$idCorto.pdf');
+                          } catch (e) {
+                            debugPrint("Error sharing pdf: $e");
+                          } finally {
+                            setDialogState(() => isGenerating = false);
+                          }
+                        },
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.print, size: 16, color: Colors.white),
+                  label: const Text("IMPRIMIR", style: TextStyle(color: Colors.white)),
+                  onPressed: isGenerating
+                      ? null
+                      : () async {
+                          setDialogState(() => isGenerating = true);
+                          try {
+                            Uint8List bytes;
+                            if (formatoSeleccionado == 'a4') {
+                              bytes = await OrderPdfHelper.generateA4(pedido: pedidoData, items: itemsImpresion);
+                            } else {
+                              bytes = await OrderPdfHelper.generateTicket(pedido: pedidoData, items: itemsImpresion);
+                            }
+                            await Printing.layoutPdf(onLayout: (format) async => bytes);
+                          } catch (e) {
+                            debugPrint("Error printing: $e");
+                          } finally {
+                            setDialogState(() => isGenerating = false);
+                          }
+                        },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_userRol == null) {
@@ -155,7 +306,23 @@ class _PedidosEntregadosPageState extends State<PedidosEntregadosPage> {
                   side: const BorderSide(color: Colors.white10),
                 ),
                 child: ListTile(
-                  contentPadding: const EdgeInsets.all(16),
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  trailing: IconButton(
+                    icon: const Icon(Icons.print, color: Colors.blueAccent, size: 24),
+                    tooltip: 'Reimprimir / Descargar',
+                    onPressed: () {
+                      final details = pedido['detalles_pedido'] as List<dynamic>? ?? [];
+                      final itemsImpresion = details.map((d) {
+                        return CartItem(
+                          id: d['id'].toString(),
+                          nombre: d['productos']?['descripcion_1']?.toString() ?? 'Producto',
+                          precio: double.tryParse(d['precio_unitario'].toString()) ?? 0.0,
+                          cantidad: (d['cantidad_despachada'] ?? d['cantidad']) as int,
+                        );
+                      }).toList();
+                      _mostrarDialogoImpresion(pedido, itemsImpresion);
+                    },
+                  ),
                   title: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [

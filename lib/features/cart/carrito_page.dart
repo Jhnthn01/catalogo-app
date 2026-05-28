@@ -4,7 +4,9 @@ import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
+import 'package:catalogo_digital_app/features/orders/order_pdf_helper.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
+import 'package:printing/printing.dart';
 
 class CarritoPage extends StatefulWidget {
   const CarritoPage({super.key});
@@ -166,6 +168,7 @@ class _CarritoPageState extends State<CarritoPage> {
 
       await Supabase.instance.client.from('detalles_pedido').insert(detalles);
 
+      final itemsConfirmados = List<CartItem>.from(cart.items);
       cart.limpiar();
 
       if (mounted) {
@@ -175,16 +178,167 @@ class _CarritoPageState extends State<CarritoPage> {
             backgroundColor: Colors.green,
           ),
         );
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const MisPedidosPage(),
-          ),
-        );
+        await _mostrarDialogoImpresion(pedido, itemsConfirmados);
       }
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text("Error: $e")));
+    }
+  }
+
+  Future<void> _mostrarDialogoImpresion(Map<String, dynamic> pedido, List<CartItem> itemsConfirmados) async {
+    String formatoSeleccionado = 'ticket';
+    bool isGenerating = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              title: const Row(
+                children: [
+                  Icon(Icons.print_outlined, color: Colors.blueAccent),
+                  SizedBox(width: 10),
+                  Text("¿Imprimir o descargar?", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "El pedido ha sido registrado con éxito. Elija el formato del comprobante para proceder:",
+                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                  const SizedBox(height: 15),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      children: [
+                        RadioListTile<String>(
+                          title: const Text("Ticketera (80mm)", style: TextStyle(color: Colors.white, fontSize: 14)),
+                          subtitle: const Text("Formato compacto térmico", style: TextStyle(color: Colors.grey, fontSize: 11)),
+                          value: 'ticket',
+                          groupValue: formatoSeleccionado,
+                          activeColor: Colors.blueAccent,
+                          onChanged: (val) {
+                            if (val != null) {
+                              setDialogState(() => formatoSeleccionado = val);
+                            }
+                          },
+                        ),
+                        const Divider(color: Colors.white10, height: 1),
+                        RadioListTile<String>(
+                          title: const Text("Hoja A4", style: TextStyle(color: Colors.white, fontSize: 14)),
+                          subtitle: const Text("Diseño corporativo formal", style: TextStyle(color: Colors.grey, fontSize: 11)),
+                          value: 'a4',
+                          groupValue: formatoSeleccionado,
+                          activeColor: Colors.blueAccent,
+                          onChanged: (val) {
+                            if (val != null) {
+                              setDialogState(() => formatoSeleccionado = val);
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isGenerating) ...[
+                    const SizedBox(height: 15),
+                    const Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                          SizedBox(width: 10),
+                          Text("Generando PDF...", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.pop(dialogContext);
+                  },
+                  child: const Text("CERRAR", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white12,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.download, size: 16, color: Colors.white),
+                  label: const Text("PDF", style: TextStyle(color: Colors.white)),
+                  onPressed: isGenerating
+                      ? null
+                      : () async {
+                          setDialogState(() => isGenerating = true);
+                          try {
+                            Uint8List bytes;
+                            if (formatoSeleccionado == 'a4') {
+                              bytes = await OrderPdfHelper.generateA4(pedido: pedido, items: itemsConfirmados);
+                            } else {
+                              bytes = await OrderPdfHelper.generateTicket(pedido: pedido, items: itemsConfirmados);
+                            }
+                            final idCorto = pedido['id'].toString().substring(0, 8).toUpperCase();
+                            await Printing.sharePdf(bytes: bytes, filename: 'pedido_$idCorto.pdf');
+                          } catch (e) {
+                            debugPrint("Error sharing pdf: $e");
+                          } finally {
+                            setDialogState(() => isGenerating = false);
+                          }
+                        },
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.print, size: 16, color: Colors.white),
+                  label: const Text("IMPRIMIR", style: TextStyle(color: Colors.white)),
+                  onPressed: isGenerating
+                      ? null
+                      : () async {
+                          setDialogState(() => isGenerating = true);
+                          try {
+                            Uint8List bytes;
+                            if (formatoSeleccionado == 'a4') {
+                              bytes = await OrderPdfHelper.generateA4(pedido: pedido, items: itemsConfirmados);
+                            } else {
+                              bytes = await OrderPdfHelper.generateTicket(pedido: pedido, items: itemsConfirmados);
+                            }
+                            await Printing.layoutPdf(onLayout: (format) async => bytes);
+                          } catch (e) {
+                            debugPrint("Error printing: $e");
+                          } finally {
+                            setDialogState(() => isGenerating = false);
+                          }
+                        },
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => const MisPedidosPage(),
+        ),
+      );
     }
   }
 
