@@ -79,7 +79,7 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
           )
         ''');
 
-      query = query.neq('estado', 'entregado');
+      query = query.neq('estado', 'entregado').neq('estado', 'cancelado');
 
       if (_userRol != 'admin' && _userRol != 'despachador' && _userRol != 'gerente') {
         query = query.eq('usuario_id', _userId!);
@@ -291,16 +291,16 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
     }
   }
 
-  Future<void> _cancelarPedido() async {
+  Future<void> _cancelarPedido(String motivo) async {
     try {
       await Supabase.instance.client
           .from('pedidos')
-          .update({'estado': 'cancelado'})
+          .update({'estado': 'cancelado', 'motivo_cancelacion': motivo})
           .eq('id', widget.pedido['id'].toString());
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Pedido cancelado correctamente")),
+          const SnackBar(content: Text("Pedido cancelado correctamente", style: TextStyle(color: Colors.white)), backgroundColor: Colors.redAccent),
         );
         widget.onRefresh();
       }
@@ -313,22 +313,102 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
   }
 
   void _mostrarDialogoConfirmarCancelacion(BuildContext context) {
+    final TextEditingController motivoCtrl = TextEditingController();
+    final formKey = GlobalKey<FormState>();
+
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E1E1E),
-        title: const Text("�Cancelar pedido?", style: TextStyle(color: Colors.white)),
-        content: const Text("Esta acci�n notificar� a la tienda. �Deseas continuar?", style: TextStyle(color: Colors.grey)),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text("VOLVER", style: TextStyle(color: Colors.white54))),
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-              _cancelarPedido();
-            },
-            child: const Text("S�, CANCELAR", style: TextStyle(color: Colors.redAccent, fontWeight: FontWeight.bold)),
-          ),
-        ],
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+            title: const Row(
+              children: [
+                Icon(Icons.cancel_outlined, color: Colors.redAccent, size: 22),
+                SizedBox(width: 8),
+                Text("Cancelar Pedido", style: TextStyle(color: Colors.white, fontSize: 18)),
+              ],
+            ),
+            content: Form(
+              key: formKey,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Esta acci\u00f3n es irreversible. Por favor indica el motivo de la cancelaci\u00f3n.",
+                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: motivoCtrl,
+                    maxLines: 4,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: "Motivo de la cancelaci\u00f3n",
+                      labelStyle: const TextStyle(color: Colors.orangeAccent),
+                      hintText: "M\u00ednimo 10 caracteres...",
+                      hintStyle: const TextStyle(color: Colors.white24, fontSize: 12),
+                      filled: true,
+                      fillColor: Colors.white.withValues(alpha: 0.05),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: Colors.white24),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: Colors.white24),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                        borderSide: const BorderSide(color: Colors.redAccent),
+                      ),
+                    ),
+                    onChanged: (_) => setDialogState(() {}),
+                    validator: (val) {
+                      if (val == null || val.trim().length < 10) {
+                        return 'El motivo debe tener al menos 10 caracteres';
+                      }
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 6),
+                  AnimatedOpacity(
+                    opacity: motivoCtrl.text.trim().length < 10 ? 1.0 : 0.0,
+                    duration: const Duration(milliseconds: 200),
+                    child: Text(
+                      "${motivoCtrl.text.trim().length}/10 caracteres m\u00ednimos",
+                      style: const TextStyle(color: Colors.grey, fontSize: 11),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text("VOLVER", style: TextStyle(color: Colors.white54)),
+              ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: motivoCtrl.text.trim().length >= 10 ? Colors.redAccent : Colors.grey.shade700,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.cancel, size: 16, color: Colors.white),
+                label: const Text("CONFIRMAR CANCELACI\u00d3N", style: TextStyle(color: Colors.white, fontSize: 12)),
+                onPressed: motivoCtrl.text.trim().length >= 10
+                    ? () {
+                        if (formKey.currentState!.validate()) {
+                          Navigator.pop(dialogContext);
+                          _cancelarPedido(motivoCtrl.text.trim());
+                        }
+                      }
+                    : null,
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -422,7 +502,7 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
           if (widget.pedido['requiere_regularizacion'] == true)
             Container(
               width: double.infinity,
-              color: Colors.redAccent.withOpacity(0.2),
+              color: Colors.redAccent.withValues(alpha: 0.2),
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 16),
               child: const Row(
                 children: [

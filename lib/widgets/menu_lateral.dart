@@ -6,6 +6,7 @@ import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
 import 'package:catalogo_digital_app/features/inventory/validar_ajustes_page.dart';
 import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
 import 'package:catalogo_digital_app/features/orders/pedidos_entregados_page.dart';
+import 'package:catalogo_digital_app/features/orders/pedidos_cancelados_page.dart';
 import 'package:catalogo_digital_app/features/profile/perfil_page.dart';
 import 'package:catalogo_digital_app/features/admin/gestion_roles_page.dart';
 
@@ -215,6 +216,25 @@ class _MenuLateralState extends State<MenuLateral> {
                     context,
                     MaterialPageRoute(
                       builder: (context) => const PedidosEntregadosPage(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(
+                  Icons.cancel_presentation,
+                  color: Colors.redAccent,
+                ),
+                title: const Text(
+                  'Pedidos Cancelados',
+                  style: TextStyle(color: Colors.white),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const PedidosCanceladosPage(),
                     ),
                   );
                 },
