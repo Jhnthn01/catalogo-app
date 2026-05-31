@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:catalogo_digital_app/app.dart';
 import 'package:catalogo_digital_app/features/cart/carrito_page.dart';
 import 'package:catalogo_digital_app/features/catalog/detalle_producto_page.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
+import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:catalogo_digital_app/widgets/menu_lateral.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
 
@@ -15,7 +17,7 @@ class CatalogoPage extends StatefulWidget {
   State<CatalogoPage> createState() => _CatalogoPageState();
 }
 
-class _CatalogoPageState extends State<CatalogoPage> {
+class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
   final _supabase = Supabase.instance.client;
   List<dynamic> _productos = [];
   bool _isLoading = false;
@@ -32,6 +34,7 @@ class _CatalogoPageState extends State<CatalogoPage> {
   String? _catFiltro;
   String? _claseFiltro;
   String? _subClaseFiltro;
+  String? _userRol;
 
   final MobileScannerController _scannerController = MobileScannerController();
 
@@ -39,9 +42,25 @@ class _CatalogoPageState extends State<CatalogoPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _fetchProductos(refresh: true);
+      if (mounted) _inicializarCatalogo();
     });
     _scrollController.addListener(_scrollListener);
+    TiendaService().tiendaSeleccionadaId.addListener(_onTiendaChanged);
+  }
+
+  Future<void> _inicializarCatalogo() async {
+    setState(() => _isLoading = true);
+    await TiendaService().cargarTiendas();
+    if (mounted) {
+      setState(() {
+        _userRol = TiendaService().usuarioRol ?? 'cliente';
+      });
+      _fetchProductos(refresh: true);
+    }
+  }
+
+  void _onTiendaChanged() {
+    if (mounted) _fetchProductos(refresh: true);
   }
 
   void _scrollListener() {
@@ -56,7 +75,23 @@ class _CatalogoPageState extends State<CatalogoPage> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final modalRoute = ModalRoute.of(context);
+    if (modalRoute != null) {
+      routeObserver.subscribe(this, modalRoute);
+    }
+  }
+
+  @override
+  void didPopNext() {
+    _fetchProductos(refresh: true);
+  }
+
+  @override
   void dispose() {
+    routeObserver.unsubscribe(this);
+    TiendaService().tiendaSeleccionadaId.removeListener(_onTiendaChanged);
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
     _searchController.dispose();
@@ -82,10 +117,25 @@ class _CatalogoPageState extends State<CatalogoPage> {
     try {
       final desde = _paginaActual * _tamanhoPagina;
       final hasta = desde + _tamanhoPagina - 1;
-      
-      var query = _supabase.from('productos').select(
-            'id, sku, upc, alu, descripcion_1, precio_venta, inventario(stock)',
-          );
+
+      // Build the inventario select clause filtered by tienda_id
+      final tiendaId = TiendaService().tiendaActivaId.value;
+      final rol = _userRol?.toLowerCase() ?? 'cliente';
+      final bool esOperativo = !(rol == 'admin' || rol == 'administrador' || rol == 'gerente');
+
+      final invSelect = (tiendaId != null || esOperativo)
+          ? 'id, sku, upc, alu, descripcion_1, precio_venta, inventario!inner(stock, tienda_id)'
+          : 'id, sku, upc, alu, descripcion_1, precio_venta, inventario(stock, tienda_id)';
+
+      var query = _supabase.from('productos').select(invSelect);
+
+      // Filter inventario by the selected store
+      if (tiendaId != null) {
+        query = query.eq('inventario.tienda_id', tiendaId);
+      } else if (esOperativo) {
+        // Strict isolation: if operative doesn't have tiendaId, they get empty
+        query = query.eq('inventario.tienda_id', -1);
+      }
 
       if (_searchQuery.isNotEmpty) {
         query = query.or(
@@ -138,6 +188,37 @@ class _CatalogoPageState extends State<CatalogoPage> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
+          if (_userRol == 'admin' || _userRol == 'administrador' || _userRol == 'gerente')
+            Padding(
+              padding: const EdgeInsets.only(right: 8.0),
+              child: ValueListenableBuilder<int?>(
+                valueListenable: TiendaService().tiendaActivaId,
+                builder: (context, tiendaId, child) {
+                  return DropdownButtonHideUnderline(
+                    child: DropdownButton<int>(
+                      dropdownColor: const Color(0xFF1E1E1E),
+                      value: tiendaId,
+                      icon: const Icon(Icons.store, color: Colors.blueAccent),
+                      style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                      onChanged: (int? newValue) {
+                        if (newValue != null) {
+                          TiendaService().seleccionarTienda(newValue);
+                        }
+                      },
+                      items: TiendaService().tiendas.map((Map<String, dynamic> tienda) {
+                        return DropdownMenuItem<int>(
+                          value: tienda['id'] as int,
+                          child: Text(
+                            tienda['nombre'] as String,
+                            style: const TextStyle(fontSize: 14),
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  );
+                },
+              ),
+            ),
           ValueListenableBuilder<int>(
             valueListenable: CartService().itemsCountNotifier,
             builder: (context, count, child) {

@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:catalogo_digital_app/features/orders/pedidos_entregados_page.dart';
 import 'package:catalogo_digital_app/features/orders/order_pdf_helper.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
+import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:printing/printing.dart';
 
 class MisPedidosPage extends StatefulWidget {
@@ -73,10 +74,12 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
           entregado_a,
           detalles_pedido (
             id,
+            producto_id,
             cantidad,
             precio_unitario,
             cantidad_despachada,
             productos (
+              id,
               descripcion_1,
               upc
             )
@@ -416,6 +419,31 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
               .from('detalles_pedido')
               .update({'cantidad_despachada': qty})
               .eq('id', d['id']);
+
+          // Deduct stock from inventario
+          final prodId = d['producto_id'] ?? d['productos']?['id'];
+          if (prodId != null) {
+            final tiendaId = TiendaService().tiendaSeleccionadaId.value;
+            var invQuery = Supabase.instance.client
+                .from('inventario')
+                .select('id, stock')
+                .eq('producto_id', prodId);
+            
+            if (tiendaId != null) {
+              invQuery = invQuery.eq('tienda_id', tiendaId);
+            }
+            
+            final invList = await invQuery;
+            if (invList.isNotEmpty) {
+              final invRecord = invList.first;
+              final int currentStock = int.tryParse(invRecord['stock'].toString()) ?? 0;
+              final int newStock = currentStock - qty;
+              await Supabase.instance.client
+                  .from('inventario')
+                  .update({'stock': newStock})
+                  .eq('id', invRecord['id']);
+            }
+          }
         } else {
           await Supabase.instance.client
               .from('detalles_pedido')

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:catalogo_digital_app/services/tienda_service.dart';
 
 class GestionRolesPage extends StatefulWidget {
   const GestionRolesPage({super.key});
@@ -29,12 +30,20 @@ class _GestionRolesPageState extends State<GestionRolesPage> {
   void initState() {
     super.initState();
     _fetchUsuarios();
+    _cargarTiendas();
+  }
+
+  Future<void> _cargarTiendas() async {
+    if (TiendaService().tiendas.isEmpty) {
+      await TiendaService().cargarTiendas();
+      if (mounted) setState(() {});
+    }
   }
 
   Future<void> _fetchUsuarios() async {
     setState(() => _isLoading = true);
     try {
-      var query = _supabase.from('perfiles').select('id, nombre, email, rol');
+      var query = _supabase.from('perfiles').select('id, nombre, email, rol, tienda_id');
 
       if (_searchQuery.isNotEmpty) {
         query = query.or(
@@ -59,7 +68,7 @@ class _GestionRolesPageState extends State<GestionRolesPage> {
     }
   }
 
-  Future<void> _cambiarRol(String userId, String nuevoRol) async {
+  Future<void> _actualizarUsuario(String userId, String nuevoRol, int? nuevaTiendaId) async {
     // Evitar que el administrador se quite su propio rol (seguridad básica frontal)
     if (userId == _supabase.auth.currentUser?.id && nuevoRol != 'admin') {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -71,13 +80,17 @@ class _GestionRolesPageState extends State<GestionRolesPage> {
       return;
     }
 
+    setState(() => _isLoading = true);
     try {
-      await _supabase.from('perfiles').update({'rol': nuevoRol}).eq('id', userId);
+      await _supabase.from('perfiles').update({
+        'rol': nuevoRol,
+        'tienda_id': nuevaTiendaId,
+      }).eq('id', userId);
       
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("Rol actualizado con éxito a '$nuevoRol'"),
+          const SnackBar(
+            content: Text("Usuario actualizado con éxito"),
             backgroundColor: Colors.green,
           ),
         );
@@ -85,14 +98,120 @@ class _GestionRolesPageState extends State<GestionRolesPage> {
       }
     } catch (e) {
       if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text("Error actualizando rol: $e (Asegúrate de haber corrido las políticas SQL en Supabase)"),
+            content: Text("Error actualizando usuario: $e"),
             backgroundColor: Colors.redAccent,
           ),
         );
       }
     }
+  }
+
+  void _mostrarDialogoEdicion(Map<String, dynamic> user) {
+    String selectedRol = user['rol'] ?? 'cliente';
+    int? selectedTiendaId = user['tienda_id'];
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              title: Text(
+                "Editar Usuario: ${user['nombre'] ?? 'Sin Nombre'}",
+                style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text("Rol del Usuario", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2C2C2C),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<String>(
+                        isExpanded: true,
+                        dropdownColor: const Color(0xFF2C2C2C),
+                        value: selectedRol,
+                        style: const TextStyle(color: Colors.white),
+                        items: _rolesDisponibles.map((String rol) {
+                          return DropdownMenuItem<String>(
+                            value: rol,
+                            child: Text(rol.toUpperCase()),
+                          );
+                        }).toList(),
+                        onChanged: (String? val) {
+                          if (val != null) {
+                            setDialogState(() => selectedRol = val);
+                          }
+                        },
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text("Sucursal Asignada (Tienda)", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF2C2C2C),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: DropdownButtonHideUnderline(
+                      child: DropdownButton<int?>(
+                        isExpanded: true,
+                        dropdownColor: const Color(0xFF2C2C2C),
+                        value: selectedTiendaId,
+                        hint: const Text("Ninguna/Sin sucursal", style: TextStyle(color: Colors.grey, fontSize: 13)),
+                        style: const TextStyle(color: Colors.white),
+                        items: [
+                          const DropdownMenuItem<int?>(
+                            value: null,
+                            child: Text("Ninguna/Sin sucursal"),
+                          ),
+                          ...TiendaService().tiendas.map((Map<String, dynamic> t) {
+                            return DropdownMenuItem<int?>(
+                              value: t['id'] as int,
+                              child: Text(t['nombre'] as String),
+                            );
+                          }),
+                        ],
+                        onChanged: (int? val) {
+                          setDialogState(() => selectedTiendaId = val);
+                        },
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text("CANCELAR", style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _actualizarUsuario(user['id'], selectedRol, selectedTiendaId);
+                  },
+                  child: const Text("GUARDAR"),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Color _getColorParaRol(String rol) {
@@ -168,6 +287,12 @@ class _GestionRolesPageState extends State<GestionRolesPage> {
                           final user = _usuarios[index];
                           final rolActual = user['rol'] ?? 'cliente';
                           
+                          final int? tiendaId = user['tienda_id'];
+                          final tiendaName = TiendaService().tiendas.firstWhere(
+                                (t) => t['id'] == tiendaId,
+                                orElse: () => <String, dynamic>{},
+                              )['nombre'] ?? 'Sin asignar';
+
                           return Card(
                             color: const Color(0xFF1E1E1E),
                             margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -176,6 +301,7 @@ class _GestionRolesPageState extends State<GestionRolesPage> {
                             ),
                             child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              onTap: () => _mostrarDialogoEdicion(user),
                               title: Text(
                                 user['nombre'] ?? 'Sin Nombre',
                                 style: const TextStyle(
@@ -191,48 +317,50 @@ class _GestionRolesPageState extends State<GestionRolesPage> {
                                     user['email'] ?? 'Sin correo',
                                     style: const TextStyle(color: Colors.grey, fontSize: 12),
                                   ),
-                                  const SizedBox(height: 6),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: _getColorParaRol(rolActual).withOpacity(0.2),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(color: _getColorParaRol(rolActual)),
-                                    ),
-                                    child: Text(
-                                      rolActual.toString().toUpperCase(),
-                                      style: TextStyle(
-                                        color: _getColorParaRol(rolActual),
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.bold,
+                                  const SizedBox(height: 8),
+                                  Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: _getColorParaRol(rolActual).withOpacity(0.2),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: _getColorParaRol(rolActual)),
+                                        ),
+                                        child: Text(
+                                          rolActual.toString().toUpperCase(),
+                                          style: TextStyle(
+                                            color: _getColorParaRol(rolActual),
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
                                       ),
-                                    ),
+                                      const SizedBox(width: 8),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: Colors.blueAccent.withOpacity(0.2),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: Colors.blueAccent),
+                                        ),
+                                        child: Text(
+                                          tiendaName.toString().toUpperCase(),
+                                          style: const TextStyle(
+                                            color: Colors.blueAccent,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ],
                               ),
-                              trailing: DropdownButtonHideUnderline(
-                                child: DropdownButton<String>(
-                                  dropdownColor: const Color(0xFF2C2C2C),
-                                  icon: const Icon(Icons.more_vert, color: Colors.white54),
-                                  items: _rolesDisponibles.map((String rol) {
-                                    return DropdownMenuItem<String>(
-                                      value: rol,
-                                      child: Text(
-                                        rol.toUpperCase(),
-                                        style: TextStyle(
-                                          color: _getColorParaRol(rol),
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 12,
-                                        ),
-                                      ),
-                                    );
-                                  }).toList(),
-                                  onChanged: (String? newValue) {
-                                    if (newValue != null && newValue != rolActual) {
-                                      _cambiarRol(user['id'], newValue);
-                                    }
-                                  },
-                                ),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.edit, color: Colors.blueAccent),
+                                tooltip: "Editar Usuario",
+                                onPressed: () => _mostrarDialogoEdicion(user),
                               ),
                             ),
                           );

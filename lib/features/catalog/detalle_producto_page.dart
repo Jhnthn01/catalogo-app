@@ -74,9 +74,14 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
           .select('id, stock, tiendas(codigo_tienda, nombre)')
           .eq('producto_id', widget.producto['id']);
           
-      final tiendaId = TiendaService().tiendaSeleccionadaId.value;
+      final tiendaId = TiendaService().tiendaActivaId.value;
+      final rol = TiendaService().usuarioRol?.toLowerCase() ?? 'cliente';
+      final bool esOperativo = !(rol == 'admin' || rol == 'administrador' || rol == 'gerente');
+
       if (tiendaId != null) {
         query = query.eq('tienda_id', tiendaId);
+      } else if (esOperativo) {
+        query = query.eq('tienda_id', -1);
       }
 
       final data = await query;
@@ -261,13 +266,15 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
             const SizedBox(height: 20),
             _buildTextField("SKU", _skuController, enabled: false),
             const SizedBox(height: 20),
-            const Text(
-              "TIENDA A CONSULTAR",
-              style: TextStyle(color: Colors.grey, fontSize: 11),
-            ),
-            const SizedBox(height: 6),
-            const SelectorTienda(),
-            const SizedBox(height: 15),
+            if (userRol == 'admin' || userRol == 'gerente') ...[
+              const Text(
+                "TIENDA A CONSULTAR",
+                style: TextStyle(color: Colors.grey, fontSize: 11),
+              ),
+              const SizedBox(height: 6),
+              const SelectorTienda(),
+              const SizedBox(height: 15),
+            ],
             const Text(
               "STOCK POR TIENDA",
               style: TextStyle(color: Colors.grey, fontSize: 12),
