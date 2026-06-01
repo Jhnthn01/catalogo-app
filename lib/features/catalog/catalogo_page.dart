@@ -124,9 +124,10 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       final rol = _userRol?.toLowerCase() ?? 'cliente';
       final bool esOperativo = !(rol == 'admin' || rol == 'administrador' || rol == 'gerente');
 
+      final fields = 'id, sku, upc, alu, descripcion_1, descripcion_2, precio_venta, categoria, clase, sub_clase';
       final invSelect = (tiendaId != null || esOperativo)
-          ? 'id, sku, upc, alu, descripcion_1, precio_venta, inventario!inner(stock, tienda_id)'
-          : 'id, sku, upc, alu, descripcion_1, precio_venta, inventario(stock, tienda_id)';
+          ? '$fields, inventario!inner(stock, tienda_id)'
+          : '$fields, inventario(stock, tienda_id)';
 
       var query = _supabase.from('productos').select(invSelect);
 
@@ -138,27 +139,60 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
         query = query.eq('inventario.tienda_id', -1);
       }
 
-      if (_searchQuery.isNotEmpty) {
-        query = query.or(
-            'descripcion_1.ilike.%$_searchQuery%,descripcion_2.ilike.%$_searchQuery%,sku.ilike.%$_searchQuery%,upc.ilike.%$_searchQuery%,alu.ilike.%$_searchQuery%');
-      }
-
       if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
       if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
       if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
 
-      final List<dynamic> data = await query
-          .order('descripcion_1', ascending: true)
-          .range(desde, hasta);
+      final List<dynamic> data;
+      if (_searchQuery.isNotEmpty) {
+        data = await query
+            .order('descripcion_1', ascending: true)
+            .limit(1000);
+      } else {
+        data = await query
+            .order('descripcion_1', ascending: true)
+            .range(desde, hasta);
+      }
 
       if (!mounted || currentFetchId != _fetchId) return;
 
-      setState(() {
-        _productos.addAll(data);
-        _paginaActual++;
-        _isLoading = false;
-        if (data.length < _tamanhoPagina) _hasMore = false;
-      });
+      if (_searchQuery.isNotEmpty) {
+        final List<String> palabras = _searchQuery.toLowerCase().trim().split(RegExp(r'\s+'));
+        final filtered = data.where((prod) {
+          final desc1 = (prod['descripcion_1'] ?? '').toString().toLowerCase();
+          final desc2 = (prod['descripcion_2'] ?? '').toString().toLowerCase();
+          final sku = (prod['sku'] ?? '').toString().toLowerCase();
+          final upc = (prod['upc'] ?? '').toString().toLowerCase();
+          final alu = (prod['alu'] ?? '').toString().toLowerCase();
+          final cat = (prod['categoria'] ?? '').toString().toLowerCase();
+          final cla = (prod['clase'] ?? '').toString().toLowerCase();
+          final sub = (prod['sub_clase'] ?? '').toString().toLowerCase();
+
+          return palabras.every((palabra) =>
+            desc1.contains(palabra) ||
+            desc2.contains(palabra) ||
+            sku.contains(palabra) ||
+            upc.contains(palabra) ||
+            alu.contains(palabra) ||
+            cat.contains(palabra) ||
+            cla.contains(palabra) ||
+            sub.contains(palabra)
+          );
+        }).toList();
+
+        setState(() {
+          _productos = filtered;
+          _hasMore = false;
+          _isLoading = false;
+        });
+      } else {
+        setState(() {
+          _productos.addAll(data);
+          _paginaActual++;
+          _isLoading = false;
+          if (data.length < _tamanhoPagina) _hasMore = false;
+        });
+      }
     } catch (e) {
       if (mounted && currentFetchId == _fetchId) {
         setState(() => _isLoading = false);
@@ -329,7 +363,9 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
         child: TextField(
           controller: _searchController,
           onChanged: (val) {
-            _searchQuery = val;
+            setState(() {
+              _searchQuery = val;
+            });
             _fetchProductos(refresh: true);
           },
           style: const TextStyle(color: Colors.white),
@@ -337,10 +373,22 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
             hintText: "Buscar producto...",
             hintStyle: const TextStyle(color: Colors.grey),
             prefixIcon: const Icon(Icons.search, color: Colors.blue),
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.qr_code_scanner, color: Colors.blue),
-              onPressed: () => setState(() => _isScanning = true),
-            ),
+            suffixIcon: _searchController.text.isEmpty
+                ? IconButton(
+                    icon: const Icon(Icons.qr_code_scanner, color: Colors.blue),
+                    onPressed: () => setState(() => _isScanning = true),
+                  )
+                : IconButton(
+                    icon: const Icon(Icons.clear, color: Colors.grey),
+                    onPressed: () {
+                      setState(() {
+                        _searchController.clear();
+                        _searchQuery = "";
+                      });
+                      FocusScope.of(context).unfocus();
+                      _fetchProductos(refresh: true);
+                    },
+                  ),
             border: InputBorder.none,
             contentPadding: const EdgeInsets.symmetric(vertical: 15),
           ),
