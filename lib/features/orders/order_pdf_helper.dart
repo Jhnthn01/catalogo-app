@@ -35,27 +35,49 @@ class OrderPdfHelper {
             children: [
               // Cabecera Corporativa
               pw.Row(
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      pw.Text(
-                        "FERRETERÍA PRO LIMA S.A.C.",
-                        style: pw.TextStyle(
-                          fontSize: 18,
-                          fontWeight: pw.FontWeight.bold,
-                          color: PdfColors.blue900,
+                  pw.Expanded(
+                    flex: 3,
+                    child: pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text(
+                          "EBORJA S.A.C.",
+                          style: pw.TextStyle(
+                            fontSize: 18,
+                            fontWeight: pw.FontWeight.bold,
+                            color: PdfColors.blue900,
+                          ),
                         ),
-                      ),
-                      pw.SizedBox(height: 4),
-                      pw.Text("RUC: 20765432109", style: pw.TextStyle(fontSize: 10)),
-                      pw.Text("Av. La Marina 1542, San Miguel, Lima", style: pw.TextStyle(fontSize: 9)),
-                      pw.Text("Telf: (01) 456-7890 | ventas@ferreteriapro.pe", style: pw.TextStyle(fontSize: 9)),
-                    ],
+                        pw.SizedBox(height: 4),
+                        pw.Text(
+                          "VENTA DE ARTÍCULOS DE FERRETERÍA EN GENERAL / PANELES SOLARES, ACCESORIOS Y BATERÍAS / LUBRICANTES, FILTROS, LLANTAS Y REPUESTOS EN GENERAL",
+                          style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold, color: PdfColors.grey800),
+                        ),
+                        pw.SizedBox(height: 2),
+                        pw.Text(
+                          "PEDIDOS AL POR MAYOR Y MENOR / ATENDEMOS PEDIDOS A PROVINCIA",
+                          style: pw.TextStyle(fontSize: 7, fontStyle: pw.FontStyle.italic, color: PdfColors.grey700),
+                        ),
+                        pw.SizedBox(height: 4),
+                        pw.Text(
+                          "Sucursales:\n Mz. 12 Lt. 25 Av. Andrés A. Cáceres - Los Rosales - Pampa - Lima Sur\n Los Girasoles - Av. Manuel Valdivia Valle Mz. E2 Lt. 01",
+                          style: const pw.TextStyle(fontSize: 7),
+                        ),
+                        pw.SizedBox(height: 2),
+                        pw.Text(
+                          "Telfs: 933 588 215 / 908 873 890",
+                          style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold),
+                        ),
+                      ],
+                    ),
                   ),
+                  pw.SizedBox(width: 15),
                   pw.Container(
-                    padding: const pw.EdgeInsets.all(8),
+                    width: 150,
+                    padding: const pw.EdgeInsets.symmetric(vertical: 10, horizontal: 8),
                     decoration: pw.BoxDecoration(
                       border: pw.Border.all(color: PdfColors.blue900, width: 2),
                       borderRadius: const pw.BorderRadius.all(pw.Radius.circular(8)),
@@ -63,18 +85,26 @@ class OrderPdfHelper {
                     child: pw.Column(
                       children: [
                         pw.Text(
-                          pedido['tipo_comprobante']?.toString().toUpperCase() ?? "COMPROBANTE",
+                          "R.U.C. Nº 20600593634",
+                          style: pw.TextStyle(
+                            fontSize: 10,
+                            fontWeight: pw.FontWeight.bold,
+                          ),
+                        ),
+                        pw.SizedBox(height: 6),
+                        pw.Text(
+                          pedido['tipo_comprobante']?.toString().toUpperCase() ?? "PROFORMA",
                           style: pw.TextStyle(
                             fontSize: 12,
                             fontWeight: pw.FontWeight.bold,
                             color: PdfColors.blue900,
                           ),
                         ),
-                        pw.SizedBox(height: 4),
+                        pw.SizedBox(height: 6),
                         pw.Text(
                           "Nº #$idCorto",
                           style: pw.TextStyle(
-                            fontSize: 14,
+                            fontSize: 12,
                             fontWeight: pw.FontWeight.bold,
                             color: PdfColors.red900,
                           ),
@@ -156,10 +186,10 @@ class OrderPdfHelper {
                   bottom: pw.BorderSide(width: 1, color: PdfColors.grey400),
                 ),
                 columnWidths: const {
-                  0: pw.FlexColumnWidth(3),
-                  1: pw.FlexColumnWidth(1),
-                  2: pw.FlexColumnWidth(1.2),
-                  3: pw.FlexColumnWidth(1.2),
+                  0: pw.FlexColumnWidth(1),     // CANT.
+                  1: pw.FlexColumnWidth(4.5),   // DESCRIPCION
+                  2: pw.FlexColumnWidth(1.2),   // P. UNIT.
+                  3: pw.FlexColumnWidth(1.3),   // IMPORTE
                 },
                 children: [
                   pw.TableRow(
@@ -167,33 +197,34 @@ class OrderPdfHelper {
                     children: [
                       pw.Padding(
                         padding: const pw.EdgeInsets.all(6),
-                        child: pw.Text("Descripción", style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 9)),
+                        child: pw.Text("CANT.", style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 9), textAlign: pw.TextAlign.center),
                       ),
                       pw.Padding(
                         padding: const pw.EdgeInsets.all(6),
-                        child: pw.Text("Cant.", style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 9), textAlign: pw.TextAlign.center),
+                        child: pw.Text("DESCRIPCION", style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 9)),
                       ),
                       pw.Padding(
                         padding: const pw.EdgeInsets.all(6),
-                        child: pw.Text("P. Unitario", style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 9), textAlign: pw.TextAlign.right),
+                        child: pw.Text("P. UNIT.", style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 9), textAlign: pw.TextAlign.right),
                       ),
                       pw.Padding(
                         padding: const pw.EdgeInsets.all(6),
-                        child: pw.Text("Importe", style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 9), textAlign: pw.TextAlign.right),
+                        child: pw.Text("IMPORTE", style: pw.TextStyle(color: PdfColors.white, fontWeight: pw.FontWeight.bold, fontSize: 9), textAlign: pw.TextAlign.right),
                       ),
                     ],
                   ),
                   ...items.map((item) {
                     final double subtotal = item.precio * item.cantidad;
+                    final String cantFormateada = item.cantidad.toString().padLeft(2, '0');
                     return pw.TableRow(
                       children: [
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(6),
-                          child: pw.Text(item.nombre, style: pw.TextStyle(fontSize: 9)),
+                          child: pw.Text(cantFormateada, style: pw.TextStyle(fontSize: 9), textAlign: pw.TextAlign.center),
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(6),
-                          child: pw.Text(item.cantidad.toString(), style: pw.TextStyle(fontSize: 9), textAlign: pw.TextAlign.center),
+                          child: pw.Text(item.nombre.toUpperCase(), style: pw.TextStyle(fontSize: 9)),
                         ),
                         pw.Padding(
                           padding: const pw.EdgeInsets.all(6),
@@ -248,7 +279,7 @@ class OrderPdfHelper {
               // Pie de página
               pw.Center(
                 child: pw.Text(
-                  "Gracias por su preferencia - FERRETERÍA PRO LIMA",
+                  "Gracias por su preferencia - EBORJA S.A.C.",
                   style: pw.TextStyle(fontSize: 8, color: PdfColors.grey500, fontStyle: pw.FontStyle.italic),
                 ),
               ),
@@ -303,19 +334,33 @@ class OrderPdfHelper {
                 child: pw.Column(
                   children: [
                     pw.Text(
-                      "FERRETERÍA PRO LIMA",
+                      "EBORJA S.A.C.",
                       style: pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
                       textAlign: pw.TextAlign.center,
                     ),
-                    pw.Text("Av. La Marina 1542, San Miguel", style: pw.TextStyle(fontSize: 8), textAlign: pw.TextAlign.center),
-                    pw.Text("RUC: 20765432109", style: pw.TextStyle(fontSize: 8), textAlign: pw.TextAlign.center),
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      "VENTA DE ARTÍCULOS DE FERRETERÍA EN GENERAL\nPANELES SOLARES, ACCESORIOS Y BATERÍAS\nLUBRICANTES, FILTROS, LLANTAS Y REPUESTOS",
+                      style: const pw.TextStyle(fontSize: 6),
+                      textAlign: pw.TextAlign.center,
+                    ),
+                    pw.SizedBox(height: 2),
+                    pw.Text(
+                      "PEDIDOS AL POR MAYOR Y MENOR\nATENDEMOS PEDIDOS A PROVINCIA",
+                      style: pw.TextStyle(fontSize: 6, fontStyle: pw.FontStyle.italic),
+                      textAlign: pw.TextAlign.center,
+                    ),
+                    pw.SizedBox(height: 4),
+                    pw.Text("R.U.C. Nº 20600593634", style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.center),
+                    pw.Text("Sucursales:\n• Mz. 12 Lt. 25 Av. Andrés A. Cáceres - Los Rosales - Pampa\n• Los Girasoles - Av. Manuel Valdivia Valle", style: pw.TextStyle(fontSize: 6), textAlign: pw.TextAlign.center),
+                    pw.Text("Telfs: 933 588 215 / 908 873 890", style: pw.TextStyle(fontSize: 6), textAlign: pw.TextAlign.center),
                     pw.SizedBox(height: 6),
                     pw.Text("--------------------------------", style: pw.TextStyle(fontSize: 9)),
                     pw.Text(
-                      pedido['tipo_comprobante']?.toString().toUpperCase() ?? "TICKET DE PEDIDO",
-                      style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
+                      pedido['tipo_comprobante']?.toString().toUpperCase() ?? "PROFORMA",
+                      style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
                     ),
-                    pw.Text("ID: #$idCorto", style: pw.TextStyle(fontSize: 11, fontWeight: pw.FontWeight.bold)),
+                    pw.Text("ID: #$idCorto", style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
                     pw.Text("--------------------------------", style: pw.TextStyle(fontSize: 9)),
                   ],
                 ),
@@ -336,28 +381,57 @@ class OrderPdfHelper {
                 pw.Text("Entregado a: ${pedido['entregado_a']}", style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
               
               pw.SizedBox(height: 6),
-              pw.Text("--------------------------------", style: pw.TextStyle(fontSize: 9)),
-              pw.Text("CANT  DESCRIPCIÓN      IMPORTE", style: pw.TextStyle(fontSize: 8, fontWeight: pw.FontWeight.bold)),
-              pw.Text("--------------------------------", style: pw.TextStyle(fontSize: 9)),
-              
-              // Items
-              ...items.map((item) {
-                final double subtotal = item.precio * item.cantidad;
-                // Format description to be compact
-                final String desc = item.nombre.length > 18 
-                    ? "${item.nombre.substring(0, 16)}.." 
-                    : item.nombre;
-                
-                final String qtyStr = item.cantidad.toString().padRight(4);
-                final String descStr = desc.padRight(18);
-                final String totalStr = "S/.${subtotal.toStringAsFixed(2)}".padLeft(8);
-
-                return pw.Padding(
-                  padding: const pw.EdgeInsets.symmetric(vertical: 1.5),
-                  child: pw.Text("$qtyStr$descStr$totalStr", style: pw.TextStyle(fontSize: 8)),
-                );
-              }),
-
+              pw.Table(
+                columnWidths: const {
+                  0: pw.FlexColumnWidth(0.8), // CANT.
+                  1: pw.FlexColumnWidth(2.8), // DESCRIPCION
+                  2: pw.FlexColumnWidth(1.1), // P. UNIT.
+                  3: pw.FlexColumnWidth(1.3), // IMPORTE
+                },
+                children: [
+                  pw.TableRow(
+                    children: [
+                      pw.Text("CANT", style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
+                      pw.Text("DESCRIPCION", style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold)),
+                      pw.Text("P.UNIT", style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.right),
+                      pw.Text("IMPORTE", style: pw.TextStyle(fontSize: 7, fontWeight: pw.FontWeight.bold), textAlign: pw.TextAlign.right),
+                    ],
+                  ),
+                  pw.TableRow(
+                    children: [
+                      pw.Text("----", style: pw.TextStyle(fontSize: 6)),
+                      pw.Text("--------------------", style: pw.TextStyle(fontSize: 6)),
+                      pw.Text("-------", style: pw.TextStyle(fontSize: 6), textAlign: pw.TextAlign.right),
+                      pw.Text("---------", style: pw.TextStyle(fontSize: 6), textAlign: pw.TextAlign.right),
+                    ],
+                  ),
+                  ...items.map((item) {
+                    final double subtotal = item.precio * item.cantidad;
+                    final String cantFormateada = item.cantidad.toString().padLeft(2, '0');
+                    return pw.TableRow(
+                      children: [
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                          child: pw.Text(cantFormateada, style: pw.TextStyle(fontSize: 7)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                          child: pw.Text(item.nombre.toUpperCase(), style: pw.TextStyle(fontSize: 7)),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                          child: pw.Text(item.precio.toStringAsFixed(2), style: pw.TextStyle(fontSize: 7), textAlign: pw.TextAlign.right),
+                        ),
+                        pw.Padding(
+                          padding: const pw.EdgeInsets.symmetric(vertical: 2),
+                          child: pw.Text(subtotal.toStringAsFixed(2), style: pw.TextStyle(fontSize: 7), textAlign: pw.TextAlign.right),
+                        ),
+                      ],
+                    );
+                  }),
+                ],
+              ),
+              pw.SizedBox(height: 6),
               pw.Text("--------------------------------", style: pw.TextStyle(fontSize: 9)),
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
