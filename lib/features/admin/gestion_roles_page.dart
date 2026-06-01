@@ -160,36 +160,59 @@ class _GestionRolesPageState extends State<GestionRolesPage> {
                   const SizedBox(height: 20),
                   const Text("Sucursal Asignada (Tienda)", style: TextStyle(color: Colors.grey, fontSize: 12)),
                   const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2C2C2C),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<int?>(
-                        isExpanded: true,
-                        dropdownColor: const Color(0xFF2C2C2C),
-                        value: selectedTiendaId,
-                        hint: const Text("Ninguna/Sin sucursal", style: TextStyle(color: Colors.grey, fontSize: 13)),
-                        style: const TextStyle(color: Colors.white),
-                        items: [
-                          const DropdownMenuItem<int?>(
-                            value: null,
-                            child: Text("Ninguna/Sin sucursal"),
+                  Builder(
+                    builder: (context) {
+                      final bool esOperativo = !(selectedRol == 'admin' || selectedRol == 'gerente');
+                      final bool mostrarErrorTienda = esOperativo && selectedTiendaId == null;
+
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2C2C2C),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: mostrarErrorTienda ? Colors.redAccent : Colors.transparent,
+                                width: 1.5,
+                              ),
+                            ),
+                            child: DropdownButtonHideUnderline(
+                              child: DropdownButton<int?>(
+                                isExpanded: true,
+                                dropdownColor: const Color(0xFF2C2C2C),
+                                value: selectedTiendaId,
+                                hint: const Text("Ninguna/Sin sucursal", style: TextStyle(color: Colors.grey, fontSize: 13)),
+                                style: const TextStyle(color: Colors.white),
+                                items: [
+                                  const DropdownMenuItem<int?>(
+                                    value: null,
+                                    child: Text("Ninguna/Sin sucursal"),
+                                  ),
+                                  ...TiendaService().tiendas.map((Map<String, dynamic> t) {
+                                    return DropdownMenuItem<int?>(
+                                      value: t['id'] as int,
+                                      child: Text(t['nombre'] as String),
+                                    );
+                                  }),
+                                ],
+                                onChanged: (int? val) {
+                                  setDialogState(() => selectedTiendaId = val);
+                                },
+                              ),
+                            ),
                           ),
-                          ...TiendaService().tiendas.map((Map<String, dynamic> t) {
-                            return DropdownMenuItem<int?>(
-                              value: t['id'] as int,
-                              child: Text(t['nombre'] as String),
-                            );
-                          }),
+                          if (mostrarErrorTienda) ...[
+                            const SizedBox(height: 6),
+                            const Text(
+                              "⚠️ Es obligatorio asignar una sucursal para este empleado",
+                              style: TextStyle(color: Colors.redAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                            ),
+                          ],
                         ],
-                        onChanged: (int? val) {
-                          setDialogState(() => selectedTiendaId = val);
-                        },
-                      ),
-                    ),
+                      );
+                    }
                   ),
                 ],
               ),
@@ -201,6 +224,16 @@ class _GestionRolesPageState extends State<GestionRolesPage> {
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
                   onPressed: () {
+                    final bool esOperativo = !(selectedRol == 'admin' || selectedRol == 'gerente');
+                    if (esOperativo && selectedTiendaId == null) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text("Es obligatorio asignar una sucursal para roles operativos."),
+                          backgroundColor: Colors.redAccent,
+                        ),
+                      );
+                      return;
+                    }
                     Navigator.pop(context);
                     _actualizarUsuario(user['id'], selectedRol, selectedTiendaId);
                   },
@@ -302,12 +335,35 @@ class _GestionRolesPageState extends State<GestionRolesPage> {
                             child: ListTile(
                               contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                               onTap: () => _mostrarDialogoEdicion(user),
-                              title: Text(
-                                user['nombre'] ?? 'Sin Nombre',
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                              title: Row(
+                                children: [
+                                  Text(
+                                    user['nombre'] ?? 'Sin Nombre',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  if (tiendaId == null) ...[
+                                    const SizedBox(width: 8),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Colors.redAccent.withValues(alpha: 0.2),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: Colors.redAccent, width: 1),
+                                      ),
+                                      child: const Text(
+                                        "⚠️ Sin Asignar",
+                                        style: TextStyle(
+                                          color: Colors.redAccent,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ],
                               ),
                               subtitle: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,

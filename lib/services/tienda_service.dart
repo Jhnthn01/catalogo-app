@@ -17,6 +17,12 @@ class TiendaService {
   String? usuarioRol;
   int? usuarioTiendaId;
 
+  bool get sinTiendaAsignada {
+    final rol = usuarioRol?.toLowerCase() ?? 'cliente';
+    final esAdminOGerente = (rol == 'admin' || rol == 'administrador' || rol == 'gerente');
+    return !esAdminOGerente && usuarioTiendaId == null && usuarioRol != null;
+  }
+
   Future<void> cargarTiendas() async {
     try {
       final response = await Supabase.instance.client
@@ -40,8 +46,13 @@ class TiendaService {
           
           final rol = usuarioRol!.toLowerCase();
           if (rol == 'admin' || rol == 'administrador' || rol == 'gerente') {
-            if (tiendaActivaId.value == null && tiendas.isNotEmpty) {
-              tiendaActivaId.value = tiendas.first['id'] as int;
+            if (usuarioTiendaId == null) {
+              if (tiendas.isNotEmpty) {
+                final sedeCentral = tiendas.firstWhere((t) => t['id'] == 1, orElse: () => tiendas.first);
+                tiendaActivaId.value = sedeCentral['id'] as int;
+              }
+            } else {
+              tiendaActivaId.value = usuarioTiendaId;
             }
           } else {
             // Rol operativo: inicializa estrictamente con el tienda_id de su registro

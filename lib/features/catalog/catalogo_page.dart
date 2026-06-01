@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:catalogo_digital_app/app.dart';
 import 'package:catalogo_digital_app/features/cart/carrito_page.dart';
 import 'package:catalogo_digital_app/features/catalog/detalle_producto_page.dart';
+import 'package:catalogo_digital_app/features/auth/sin_tienda_page.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
 import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:catalogo_digital_app/widgets/menu_lateral.dart';
@@ -167,6 +168,10 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
 
   @override
   Widget build(BuildContext context) {
+    if (TiendaService().sinTiendaAsignada) {
+      return const SinTiendaPage();
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       drawer: const MenuLateral(),
