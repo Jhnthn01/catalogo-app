@@ -132,6 +132,7 @@ class _InventarioPageState extends State<InventarioPage> {
           builder: (context, setStateDialog) {
             return AlertDialog(
               backgroundColor: const Color(0xFF2C2C2C),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
               title: const Text("Seleccionar Tienda", style: TextStyle(color: Colors.white)),
               content: DropdownButton<int>(
                 value: tiendaIdSeleccionada,
@@ -167,24 +168,43 @@ class _InventarioPageState extends State<InventarioPage> {
     
     setState(() => _isLoading = true);
     try {
-      final response = await Supabase.instance.client
-          .from('productos')
-          .select('sku, upc, marca, categoria, clase, sub_clase, estilo, descripcion_1, color, costo, precio_venta, inventario!inner(stock, tiendas(nombre))')
-          .eq('inventario.tienda_id', tiendaIdSeleccionada!);
-          
-      if (response.isEmpty) {
+      List<dynamic> allRows = [];
+      int offset = 0;
+      const int limit = 1000;
+      bool hasMore = true;
+
+      while (hasMore) {
+        final List<dynamic> response = await Supabase.instance.client
+            .from('inventario')
+            .select('stock, tiendas(nombre), productos(sku, upc, marca, categoria, clase, sub_clase, estilo, descripcion_1, color, costo, precio_venta)')
+            .eq('tienda_id', tiendaIdSeleccionada!)
+            .range(offset, offset + limit - 1);
+
+        if (response.isEmpty) {
+          hasMore = false;
+        } else {
+          allRows.addAll(response);
+          if (response.length < limit) {
+            hasMore = false;
+          } else {
+            offset += limit;
+          }
+        }
+      }
+
+      if (allRows.isEmpty) {
         if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No hay productos para esta tienda')));
         setState(() => _isLoading = false);
         return;
       }
       
-      final String nombreTienda = response.first['inventario'][0]['tiendas']['nombre'] ?? 'tienda';
+      final String nombreTienda = allRows.first['tiendas']?['nombre'] ?? 'tienda';
       
       List<List<dynamic>> rows = [];
       rows.add(['SKU', 'UPC', 'Marca', 'Categoria', 'Clase', 'Subclase', 'Estilo', 'Descripcion', 'Color', 'Costo', 'Precio', 'Stock', 'Tienda']);
       
-      for (var p in response) {
-        final stockInfo = p['inventario'][0];
+      for (var row in allRows) {
+        final p = row['productos'] ?? {};
         rows.add([
           p['sku'] ?? '',
           p['upc'] ?? '',
@@ -197,7 +217,7 @@ class _InventarioPageState extends State<InventarioPage> {
           p['color'] ?? '',
           p['costo'] ?? 0,
           p['precio_venta'] ?? 0,
-          stockInfo['stock'] ?? 0,
+          row['stock'] ?? 0,
           nombreTienda
         ]);
       }
@@ -215,8 +235,26 @@ class _InventarioPageState extends State<InventarioPage> {
       html.document.body!.children.remove(anchor);
       html.Url.revokeObjectUrl(url);
       
+    } on PostgrestException catch (e) {
+      debugPrint('PostgrestException during export: ${e.message} - ${e.details}');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error de base de datos: ${e.message}'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     } catch (e) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      debugPrint('GeneralException during export: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -230,11 +268,22 @@ class _InventarioPageState extends State<InventarioPage> {
         title: const Text("Inventario"),
         backgroundColor: Colors.transparent,
         actions: [
-          IconButton(
-            icon: const Icon(Icons.download, color: Colors.greenAccent),
-            tooltip: 'Exportar Maestro CSV',
-            onPressed: _exportarCSV,
-          )
+          _isLoading
+              ? const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16.0),
+                  child: Center(
+                    child: SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.greenAccent),
+                    ),
+                  ),
+                )
+              : IconButton(
+                  icon: const Icon(Icons.download, color: Colors.greenAccent),
+                  tooltip: 'Exportar Maestro CSV',
+                  onPressed: _exportarCSV,
+                )
         ],
       ),
       body: Column(
