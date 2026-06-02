@@ -4,6 +4,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:csv/csv.dart';
 import 'package:universal_html/html.dart' as html;
 import 'dart:convert';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'dart:io' as io;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:catalogo_digital_app/features/inventory/nuevo_producto_page.dart';
@@ -223,17 +227,30 @@ class _InventarioPageState extends State<InventarioPage> {
       }
       
       String csvData = csv.encode(rows);
-      final bytes = utf8.encode(csvData);
-      final blob = html.Blob([bytes]);
-      final url = html.Url.createObjectUrlFromBlob(blob);
-      final anchor = html.document.createElement('a') as html.AnchorElement
-        ..href = url
-        ..style.display = 'none'
-        ..download = 'maestro_${nombreTienda.replaceAll(' ', '_')}.csv';
-      html.document.body!.children.add(anchor);
-      anchor.click();
-      html.document.body!.children.remove(anchor);
-      html.Url.revokeObjectUrl(url);
+      if (kIsWeb) {
+        final bytes = utf8.encode(csvData);
+        final blob = html.Blob([bytes]);
+        final url = html.Url.createObjectUrlFromBlob(blob);
+        final anchor = html.document.createElement('a') as html.AnchorElement
+          ..href = url
+          ..style.display = 'none'
+          ..download = 'maestro_${nombreTienda.replaceAll(' ', '_')}.csv';
+        html.document.body!.children.add(anchor);
+        anchor.click();
+        html.document.body!.children.remove(anchor);
+        html.Url.revokeObjectUrl(url);
+      } else {
+        final directory = await getTemporaryDirectory();
+        final fileName = 'maestro_${nombreTienda.replaceAll(' ', '_')}.csv';
+        final filePath = '${directory.path}/$fileName';
+        final file = io.File(filePath);
+        await file.writeAsString(csvData, encoding: utf8);
+        
+        await Share.shareXFiles(
+          [XFile(filePath, name: fileName)],
+          subject: 'Maestro de Inventario - $nombreTienda',
+        );
+      }
       
     } on PostgrestException catch (e) {
       debugPrint('PostgrestException during export: ${e.message} - ${e.details}');
