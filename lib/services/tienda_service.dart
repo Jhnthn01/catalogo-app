@@ -17,6 +17,10 @@ class TiendaService {
   String? usuarioRol;
   int? usuarioTiendaId;
 
+  // Flag: true cuando el admin eligió la tienda manualmente.
+  // Evita que cargarTiendas() sobreescriba la selección al regresar de otra vista.
+  bool _seleccionManual = false;
+
   bool get sinTiendaAsignada {
     final rol = usuarioRol?.toLowerCase() ?? 'cliente';
     final esAdminOGerente = (rol == 'admin' || rol == 'administrador' || rol == 'gerente');
@@ -46,17 +50,21 @@ class TiendaService {
           
           final rol = usuarioRol!.toLowerCase();
           if (rol == 'admin' || rol == 'administrador' || rol == 'gerente') {
-            if (usuarioTiendaId == null) {
+            // Si el admin ya eligió una tienda manualmente, respetarla.
+            if (_seleccionManual && tiendaActivaId.value != null) {
+              // No sobreescribir — conservar la elección previa.
+            } else if (usuarioTiendaId != null) {
+              tiendaActivaId.value = usuarioTiendaId;
+            } else {
               if (tiendas.isNotEmpty) {
                 final sedeCentral = tiendas.firstWhere((t) => t['id'] == 1, orElse: () => tiendas.first);
                 tiendaActivaId.value = sedeCentral['id'] as int;
               }
-            } else {
-              tiendaActivaId.value = usuarioTiendaId;
             }
           } else {
-            // Rol operativo: inicializa estrictamente con el tienda_id de su registro
+            // Rol operativo: siempre fijado a su tienda, sin excepción.
             tiendaActivaId.value = usuarioTiendaId;
+            _seleccionManual = false;
           }
         } else {
           usuarioRol = 'cliente';
@@ -69,6 +77,7 @@ class TiendaService {
         usuarioRol = null;
         usuarioTiendaId = null;
         tiendaActivaId.value = null;
+        _seleccionManual = false;
       }
     } catch (e) {
       debugPrint('Error cargando tiendas: $e');
@@ -76,10 +85,20 @@ class TiendaService {
   }
 
   void seleccionarTienda(int id) {
-    // Si el rol es operativo, no permitir cambiar la tienda (por seguridad frontal)
+    // Si el rol es operativo, no permitir cambiar la tienda (seguridad frontal).
     final rol = usuarioRol?.toLowerCase() ?? 'cliente';
     if (rol == 'admin' || rol == 'administrador' || rol == 'gerente') {
+      _seleccionManual = true;
       tiendaActivaId.value = id;
     }
+  }
+
+  /// Llama esto en el logout para limpiar el estado de sesión.
+  void limpiarSesion() {
+    _seleccionManual = false;
+    tiendaActivaId.value = null;
+    usuarioRol = null;
+    usuarioTiendaId = null;
+    tiendas = [];
   }
 }

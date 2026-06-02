@@ -6,6 +6,7 @@ import 'package:catalogo_digital_app/features/orders/detalle_pedido_page.dart';
 import 'package:catalogo_digital_app/widgets/menu_lateral.dart';
 import 'package:catalogo_digital_app/features/orders/order_pdf_helper.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
+import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:printing/printing.dart';
 
 class PedidosEntregadosPage extends StatefulWidget {
@@ -90,6 +91,12 @@ class _PedidosEntregadosPageState extends State<PedidosEntregadosPage> {
       // If user is client, only show their own delivered orders
       if (_userRol != 'admin' && _userRol != 'despachador' && _userRol != 'gerente') {
         query = query.eq('usuario_id', _userId!);
+      }
+
+      // Filtrar por tienda activa
+      final tiendaId = TiendaService().tiendaActivaId.value;
+      if (tiendaId != null) {
+        query = query.eq('tienda_id', tiendaId);
       }
 
       // Order by created_at or creado_en descending

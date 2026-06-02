@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
 import 'package:catalogo_digital_app/features/orders/order_pdf_helper.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
+import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:printing/printing.dart';
 
 class CarritoPage extends StatefulWidget {
@@ -155,6 +156,7 @@ class _CarritoPageState extends State<CarritoPage> {
         'fecha_entrega': fechaEntregaFinal.toIso8601String(),
         'segundo_recoge': _segundoRecogeController.text.trim().isNotEmpty ? _segundoRecogeController.text.trim() : null,
         'requiere_regularizacion': requiereRegularizacion,
+        'tienda_id': TiendaService().tiendaActivaId.value,
       }).select().single();
 
       final detalles = cart.items

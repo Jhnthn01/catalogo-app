@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:catalogo_digital_app/widgets/menu_lateral.dart';
+import 'package:catalogo_digital_app/services/tienda_service.dart';
 
 class PedidosCanceladosPage extends StatefulWidget {
   const PedidosCanceladosPage({super.key});
@@ -28,7 +29,9 @@ class _PedidosCanceladosPageState extends State<PedidosCanceladosPage> {
       _error = null;
     });
     try {
-      final response = await _supabase
+      final tiendaId = TiendaService().tiendaActivaId.value;
+
+      var query = _supabase
           .from('pedidos')
           .select('''
             id,
@@ -41,8 +44,13 @@ class _PedidosCanceladosPageState extends State<PedidosCanceladosPage> {
             tipo_comprobante,
             forma_pago
           ''')
-          .eq('estado', 'cancelado')
-          .order('creado_en', ascending: false);
+          .eq('estado', 'cancelado');
+
+      if (tiendaId != null) {
+        query = query.eq('tienda_id', tiendaId);
+      }
+
+      final response = await query.order('creado_en', ascending: false);
 
       setState(() {
         _pedidos = List<Map<String, dynamic>>.from(response);

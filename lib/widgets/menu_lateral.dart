@@ -9,6 +9,7 @@ import 'package:catalogo_digital_app/features/orders/pedidos_entregados_page.dar
 import 'package:catalogo_digital_app/features/orders/pedidos_cancelados_page.dart';
 import 'package:catalogo_digital_app/features/profile/perfil_page.dart';
 import 'package:catalogo_digital_app/features/admin/gestion_roles_page.dart';
+import 'package:catalogo_digital_app/services/tienda_service.dart';
 
 class MenuLateral extends StatefulWidget {
   const MenuLateral({super.key});
@@ -152,50 +153,50 @@ class _MenuLateralState extends State<MenuLateral> {
                   (route) => false,
                 ),
               ),
-              StreamBuilder<List<Map<String, dynamic>>>(
-                stream: Supabase.instance.client
-                    .from('pedidos')
-                    .stream(primaryKey: ['id'])
-                    .eq('estado', 'pendiente'),
-                builder: (context, snapshot) {
-                  int pendingCount = 0;
-                  if (snapshot.hasData) {
-                    pendingCount = snapshot.data!.length;
-                  }
+              // Badge reactivo filtrado por tienda activa
+              ValueListenableBuilder<int?>(
+                valueListenable: TiendaService().tiendaActivaId,
+                builder: (context, tiendaId, _) {
+                  return FutureBuilder<int>(
+                    future: _contarPendientes(tiendaId),
+                    builder: (context, snapshot) {
+                      final int pendingCount = snapshot.data ?? 0;
 
-                  return ListTile(
-                    leading: const Icon(
-                      Icons.shopping_bag_outlined,
-                      color: Colors.white70,
-                    ),
-                    title: const Text(
-                      'Pedidos Pendientes',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                    trailing: pendingCount > 0
-                        ? Container(
-                            padding: const EdgeInsets.all(6),
-                            decoration: const BoxDecoration(
-                              color: Colors.redAccent,
-                              shape: BoxShape.circle,
-                            ),
-                            child: Text(
-                              pendingCount > 99 ? '99+' : pendingCount.toString(),
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                          )
-                        : null,
-                    onTap: () {
-                      Navigator.pop(context);
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const MisPedidosPage(),
+                      return ListTile(
+                        leading: const Icon(
+                          Icons.shopping_bag_outlined,
+                          color: Colors.white70,
                         ),
+                        title: const Text(
+                          'Pedidos Pendientes',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                        trailing: pendingCount > 0
+                            ? Container(
+                                padding: const EdgeInsets.all(6),
+                                decoration: const BoxDecoration(
+                                  color: Colors.redAccent,
+                                  shape: BoxShape.circle,
+                                ),
+                                child: Text(
+                                  pendingCount > 99 ? '99+' : pendingCount.toString(),
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              )
+                            : null,
+                        onTap: () {
+                          Navigator.pop(context);
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => const MisPedidosPage(),
+                            ),
+                          );
+                        },
                       );
                     },
                   );
@@ -315,6 +316,23 @@ class _MenuLateralState extends State<MenuLateral> {
     );
   }
 
+  /// Cuenta los pedidos pendientes filtrados por tienda activa.
+  Future<int> _contarPendientes(int? tiendaId) async {
+    try {
+      var query = Supabase.instance.client
+          .from('pedidos')
+          .select('id')
+          .eq('estado', 'pendiente');
+      if (tiendaId != null) {
+        query = query.eq('tienda_id', tiendaId);
+      }
+      final result = await query;
+      return (result as List).length;
+    } catch (_) {
+      return 0;
+    }
+  }
+
   void _mostrarDialogoCerrarSesion(BuildContext context) {
     showDialog(
       context: context,
@@ -342,6 +360,7 @@ class _MenuLateralState extends State<MenuLateral> {
             ),
             TextButton(
               onPressed: () async {
+                TiendaService().limpiarSesion();
                 await Supabase.instance.client.auth.signOut();
                 if (context.mounted) {
                   Navigator.pushNamedAndRemoveUntil(

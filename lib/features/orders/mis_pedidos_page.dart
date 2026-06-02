@@ -92,6 +92,12 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
         query = query.eq('usuario_id', _userId!);
       }
 
+      // Filtrar por tienda activa
+      final tiendaId = TiendaService().tiendaActivaId.value;
+      if (tiendaId != null) {
+        query = query.eq('tienda_id', tiendaId);
+      }
+
       final response = await query.order('creado_en', ascending: false);
 
       return List<Map<String, dynamic>>.from(response);
