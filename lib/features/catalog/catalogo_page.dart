@@ -124,7 +124,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       final rol = _userRol?.toLowerCase() ?? 'cliente';
       final bool esOperativo = !(rol == 'admin' || rol == 'administrador' || rol == 'gerente');
 
-      final fields = 'id, sku, upc, alu, descripcion_1, descripcion_2, precio_venta, categoria, clase, sub_clase';
+      final fields = 'id, sku, upc, alu, marca, descripcion_1, descripcion_2, precio_venta, categoria, clase, sub_clase';
       final invSelect = (tiendaId != null || esOperativo)
           ? '$fields, inventario!inner(stock, tienda_id)'
           : '$fields, inventario(stock, tienda_id)';
@@ -144,7 +144,23 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
 
       final List<dynamic> data;
-      if (_searchQuery.isNotEmpty) {
+      if (_searchQuery.trim().isNotEmpty) {
+        final term = _searchQuery.trim();
+        final List<String> tokens = term.split(RegExp(r'\s+'));
+        final List<String> orClauses = [];
+        for (var token in tokens) {
+          if (token.isNotEmpty) {
+            orClauses.add('descripcion_1.ilike.%$token%');
+            orClauses.add('descripcion_2.ilike.%$token%');
+            orClauses.add('sku.ilike.%$token%');
+            orClauses.add('upc.ilike.%$token%');
+            orClauses.add('marca.ilike.%$token%');
+            orClauses.add('alu.ilike.%$token%');
+          }
+        }
+        if (orClauses.isNotEmpty) {
+          query = query.or(orClauses.join(','));
+        }
         data = await query
             .order('descripcion_1', ascending: true)
             .limit(1000);
@@ -156,28 +172,32 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
 
       if (!mounted || currentFetchId != _fetchId) return;
 
-      if (_searchQuery.isNotEmpty) {
+      if (_searchQuery.trim().isNotEmpty) {
         final List<String> palabras = _searchQuery.toLowerCase().trim().split(RegExp(r'\s+'));
         final filtered = data.where((prod) {
+          final skuLower = (prod['sku'] ?? '').toString().toLowerCase().trim();
+          final upcLower = (prod['upc'] ?? '').toString().toLowerCase();
           final desc1 = (prod['descripcion_1'] ?? '').toString().toLowerCase();
           final desc2 = (prod['descripcion_2'] ?? '').toString().toLowerCase();
-          final sku = (prod['sku'] ?? '').toString().toLowerCase();
-          final upc = (prod['upc'] ?? '').toString().toLowerCase();
+          final marca = (prod['marca'] ?? '').toString().toLowerCase();
           final alu = (prod['alu'] ?? '').toString().toLowerCase();
           final cat = (prod['categoria'] ?? '').toString().toLowerCase();
           final cla = (prod['clase'] ?? '').toString().toLowerCase();
           final sub = (prod['sub_clase'] ?? '').toString().toLowerCase();
 
-          return palabras.every((palabra) =>
-            desc1.contains(palabra) ||
-            desc2.contains(palabra) ||
-            sku.contains(palabra) ||
-            upc.contains(palabra) ||
-            alu.contains(palabra) ||
-            cat.contains(palabra) ||
-            cla.contains(palabra) ||
-            sub.contains(palabra)
-          );
+          return palabras.every((palabraIngresada) {
+            final String pi = palabraIngresada;
+            return skuLower == pi ||
+                   skuLower.contains(pi) ||
+                   upcLower.contains(pi) ||
+                   desc1.contains(pi) ||
+                   marca.contains(pi) ||
+                   desc2.contains(pi) ||
+                   alu.contains(pi) ||
+                   cat.contains(pi) ||
+                   cla.contains(pi) ||
+                   sub.contains(pi);
+          });
         }).toList();
 
         setState(() {
@@ -364,7 +384,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
           controller: _searchController,
           onChanged: (val) {
             setState(() {
-              _searchQuery = val;
+              _searchQuery = val.trim();
             });
             _fetchProductos(refresh: true);
           },
@@ -416,7 +436,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                 onDetect: (capture) {
                   final List<Barcode> barcodes = capture.barcodes;
                   if (barcodes.isNotEmpty) {
-                    final String code = barcodes.first.rawValue ?? "";
+                    final String code = (barcodes.first.rawValue ?? "").trim();
                     setState(() {
                       _isScanning = false;
                       _searchController.text = code;
