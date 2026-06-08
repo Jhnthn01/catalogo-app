@@ -22,6 +22,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
   final _supabase = Supabase.instance.client;
   List<dynamic> _productos = [];
   bool _isLoading = false;
+  bool _isConfirming = false;  // separate flag for order submission only
   bool _isScanning = false;
   String _searchQuery = "";
   final ScrollController _scrollController = ScrollController();
@@ -870,11 +871,16 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
   }
 
   Future<void> _seleccionarFechaHora() async {
+    final DateTime hoy = DateTime(
+      DateTime.now().year,
+      DateTime.now().month,
+      DateTime.now().day,
+    );
     final DateTime? date = await showDatePicker(
       context: context,
-      initialDate: _fechaEntrega ?? DateTime.now(),
-      firstDate: DateTime.now(),
-      lastDate: DateTime.now().add(const Duration(days: 90)),
+      initialDate: _fechaEntrega ?? hoy,
+      firstDate: hoy,
+      lastDate: hoy.add(const Duration(days: 90)),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
@@ -892,30 +898,84 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
 
     if (date != null) {
       if (!mounted) return;
-      final TimeOfDay? time = await showTimePicker(
+
+      // Build allowed slots: 06:00, 06:30 ... 22:00 (every 30 min)
+      final List<TimeOfDay> slots = [];
+      for (int h = 6; h <= 22; h++) {
+        slots.add(TimeOfDay(hour: h, minute: 0));
+        if (h < 22) slots.add(TimeOfDay(hour: h, minute: 30));
+      }
+
+      final TimeOfDay? time = await showDialog<TimeOfDay>(
         context: context,
-        initialTime: _horaEntrega ?? TimeOfDay.now(),
-        builder: (context, child) {
-          return Theme(
-            data: Theme.of(context).copyWith(
-              colorScheme: const ColorScheme.dark(
-                primary: Colors.blueAccent,
-                onPrimary: Colors.white,
-                surface: Color(0xFF1E1E1E),
-                onSurface: Colors.white,
+        builder: (ctx) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            title: const Row(
+              children: [
+                Icon(Icons.access_time, color: Colors.blueAccent, size: 20),
+                SizedBox(width: 8),
+                Text(
+                  "Hora de Entrega",
+                  style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
+            content: SizedBox(
+              width: double.maxFinite,
+              height: 320,
+              child: ListView.builder(
+                itemCount: slots.length,
+                itemBuilder: (ctx2, i) {
+                  final t = slots[i];
+                  final h12 = t.hour == 0 ? 12 : (t.hour > 12 ? t.hour - 12 : t.hour);
+                  final ampm = t.hour < 12 ? 'AM' : 'PM';
+                  final label = '${h12.toString().padLeft(2, '0')}:${t.minute.toString().padLeft(2, '0')} $ampm';
+                  final isSelected = _horaEntrega?.hour == t.hour && _horaEntrega?.minute == t.minute;
+                  return ListTile(
+                    dense: true,
+                    selected: isSelected,
+                    selectedColor: Colors.blueAccent,
+                    selectedTileColor: Colors.blueAccent.withValues(alpha: 0.1),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    leading: Icon(
+                      Icons.schedule,
+                      color: isSelected ? Colors.blueAccent : Colors.grey,
+                      size: 18,
+                    ),
+                    title: Text(
+                      label,
+                      style: TextStyle(
+                        color: isSelected ? Colors.blueAccent : Colors.white70,
+                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                        fontSize: 14,
+                      ),
+                    ),
+                    onTap: () => Navigator.pop(ctx, t),
+                  );
+                },
               ),
             ),
-            child: child!,
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('CANCELAR', style: TextStyle(color: Colors.grey)),
+              ),
+            ],
           );
         },
       );
 
-      if (time != null) {
+      if (time != null && mounted) {
+        final h12 = time.hour == 0 ? 12 : (time.hour > 12 ? time.hour - 12 : time.hour);
+        final ampm = time.hour < 12 ? 'AM' : 'PM';
+        final timeLabel = '${h12.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')} $ampm';
         setState(() {
           _fechaEntrega = date;
           _horaEntrega = time;
           _fechaHoraController.text =
-              "${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year} ${time.format(context)}";
+              "${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year} $timeLabel";
         });
       }
     }
@@ -1238,14 +1298,75 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                                     setState(() {});
                                   },
                                 ),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                                  child: Text(
-                                    '${item.cantidad}',
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.bold,
+                                // Tappable quantity — opens keyboard dialog
+                                GestureDetector(
+                                  onTap: () async {
+                                    final ctrl = TextEditingController(text: item.cantidad.toString());
+                                    final int? result = await showDialog<int>(
+                                      context: context,
+                                      builder: (ctx) => AlertDialog(
+                                        backgroundColor: const Color(0xFF1E1E1E),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                        title: const Text(
+                                          'Editar Cantidad',
+                                          style: TextStyle(color: Colors.white, fontSize: 15),
+                                        ),
+                                        content: TextField(
+                                          controller: ctrl,
+                                          autofocus: true,
+                                          keyboardType: TextInputType.number,
+                                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                                          textAlign: TextAlign.center,
+                                          style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                                          decoration: const InputDecoration(
+                                            border: UnderlineInputBorder(
+                                              borderSide: BorderSide(color: Colors.blueAccent),
+                                            ),
+                                            focusedBorder: UnderlineInputBorder(
+                                              borderSide: BorderSide(color: Colors.blueAccent, width: 2),
+                                            ),
+                                          ),
+                                          onTap: () => ctrl.selection = TextSelection(baseOffset: 0, extentOffset: ctrl.text.length),
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.pop(ctx),
+                                            child: const Text('CANCELAR', style: TextStyle(color: Colors.grey)),
+                                          ),
+                                          ElevatedButton(
+                                            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+                                            onPressed: () {
+                                              final n = int.tryParse(ctrl.text);
+                                              Navigator.pop(ctx, n);
+                                            },
+                                            child: const Text('GUARDAR', style: TextStyle(color: Colors.white)),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    ctrl.dispose();
+                                    if (result != null && result > 0) {
+                                      CartService().actualizarCantidad(item.id, result);
+                                      setState(() {});
+                                    } else if (result == 0) {
+                                      CartService().eliminarProducto(item.id);
+                                      setState(() {});
+                                    }
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: Colors.blueAccent.withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(8),
+                                      border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.4)),
+                                    ),
+                                    child: Text(
+                                      '${item.cantidad}',
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -1278,9 +1399,54 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                             ),
                             IconButton(
                               icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
-                              onPressed: () {
-                                CartService().eliminarProducto(item.id);
-                                setState(() {});
+                              onPressed: () async {
+                                final confirm = await showDialog<bool>(
+                                  context: context,
+                                  builder: (ctx) => AlertDialog(
+                                    backgroundColor: const Color(0xFF1E1E1E),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                                    title: const Row(
+                                      children: [
+                                        Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 22),
+                                        SizedBox(width: 8),
+                                        Expanded(
+                                          child: Text(
+                                            'Eliminar Producto',
+                                            style: TextStyle(color: Colors.white, fontSize: 16),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    content: Text(
+                                      '¿Desea eliminar "${item.nombre}" de la orden?',
+                                      style: const TextStyle(color: Colors.white70, fontSize: 14),
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(ctx, false),
+                                        child: const Text(
+                                          'CANCELAR',
+                                          style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                      ElevatedButton(
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.redAccent,
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                        ),
+                                        onPressed: () => Navigator.pop(ctx, true),
+                                        child: const Text(
+                                          'ELIMINAR',
+                                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                                if (confirm == true) {
+                                  CartService().eliminarProducto(item.id);
+                                  setState(() {});
+                                }
                               },
                             ),
                           ],
@@ -1347,8 +1513,8 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                 ),
                 elevation: 3,
               ),
-              onPressed: _isLoading ? null : _confirmarPedido,
-              child: _isLoading
+              onPressed: _isConfirming ? null : _confirmarPedido,
+              child: _isConfirming
                   ? const CircularProgressIndicator(color: Colors.white)
                   : const Text(
                       "CONFIRMAR MI PEDIDO",
@@ -1428,7 +1594,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       return;
     }
 
-    setState(() => _isLoading = true);
+    setState(() => _isConfirming = true);
 
     try {
       final user = _supabase.auth.currentUser;
@@ -1504,7 +1670,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) setState(() => _isConfirming = false);
       _fetchProductos(refresh: true);
     }
   }
