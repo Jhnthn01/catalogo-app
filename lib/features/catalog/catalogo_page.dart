@@ -10,6 +10,10 @@ import 'package:catalogo_digital_app/services/cart_service.dart';
 import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:catalogo_digital_app/widgets/menu_lateral.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
+import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
+import 'package:catalogo_digital_app/features/orders/pedidos_entregados_page.dart';
+import 'package:catalogo_digital_app/features/orders/order_pdf_helper.dart';
+import 'package:printing/printing.dart';
 
 class CatalogoPage extends StatefulWidget {
   const CatalogoPage({super.key});
@@ -274,7 +278,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
             IconButton(
               icon: const Icon(Icons.fullscreen_exit, color: Colors.redAccent),
               onPressed: () {
-                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                ScaffoldMessenger.of(context).clearSnackBars();
                 setState(() {
                   _isCatalogExpanded = false;
                 });
@@ -1652,10 +1656,12 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
         );
       }
 
+      final List<CartItem> itemsCopy = List.from(items);
+
       final pedido = await _supabase.from('pedidos').insert({
         'usuario_id': user.id,
         'total': CartService().total,
-        'estado': 'pendiente',
+        'estado': _isEntrega ? 'pendiente' : 'entregado',
         'nombre_cliente': nombre,
         'telefono_cliente': telefono,
         'direccion_cliente': _isEntrega ? _direccionController.text.trim() : null,
@@ -1671,7 +1677,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
         'tienda_id': TiendaService().tiendaActivaId.value,
       }).select().single();
 
-      final detalles = items
+      final detalles = itemsCopy
           .map((item) => {
                 'pedido_id': pedido['id'],
                 'producto_id': item.id,
@@ -1693,6 +1699,35 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
           ),
         );
       }
+
+      if (_isEntrega) {
+        // Venta por Entrega (Delivery): Print ticket silently/automatically and redirect immediately to MisPedidosPage
+        try {
+          final bytes = await OrderPdfHelper.generateTicket(pedido: pedido, items: itemsCopy);
+          Printing.layoutPdf(onLayout: (format) async => bytes);
+        } catch (e) {
+          debugPrint("Error auto-printing ticket: $e");
+        }
+
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const MisPedidosPage()),
+          );
+        }
+      } else {
+        // Venta en Tienda: Show printing dialog, then redirect to PedidosEntregadosPage
+        if (mounted) {
+          await _mostrarDialogoImpresionVentaTienda(pedido, itemsCopy);
+        }
+
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const PedidosEntregadosPage()),
+          );
+        }
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1706,6 +1741,192 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       if (mounted) setState(() => _isConfirming = false);
       _fetchProductos(refresh: true);
     }
+  }
+
+  Future<void> _mostrarDialogoImpresionVentaTienda(Map<String, dynamic> pedidoData, List<CartItem> itemsImpresion) async {
+    String formatoSeleccionado = 'ticket';
+    bool isGenerating = false;
+
+    await showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (dialogContext, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15)),
+              actionsPadding: EdgeInsets.zero,
+              title: const Row(
+                children: [
+                  Icon(Icons.print_outlined, color: Colors.blueAccent),
+                  SizedBox(width: 10),
+                  Text("¿Imprimir o descargar?", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    "Elija el formato del comprobante para proceder:",
+                    style: TextStyle(color: Colors.grey, fontSize: 13),
+                  ),
+                  const SizedBox(height: 15),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.05),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      children: [
+                        RadioListTile<String>(
+                          title: const Text("Ticketera (80mm)", style: TextStyle(color: Colors.white, fontSize: 14)),
+                          subtitle: const Text("Formato compacto térmico", style: TextStyle(color: Colors.grey, fontSize: 11)),
+                          value: 'ticket',
+                          groupValue: formatoSeleccionado,
+                          activeColor: Colors.blueAccent,
+                          onChanged: (val) {
+                            if (val != null) {
+                              setDialogState(() => formatoSeleccionado = val);
+                            }
+                          },
+                        ),
+                        const Divider(color: Colors.white10, height: 1),
+                        RadioListTile<String>(
+                          title: const Text("Hoja A4", style: TextStyle(color: Colors.white, fontSize: 14)),
+                          subtitle: const Text("Diseño corporativo formal", style: TextStyle(color: Colors.grey, fontSize: 11)),
+                          value: 'a4',
+                          groupValue: formatoSeleccionado,
+                          activeColor: Colors.blueAccent,
+                          onChanged: (val) {
+                            if (val != null) {
+                              setDialogState(() => formatoSeleccionado = val);
+                            }
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (isGenerating) ...[
+                    const SizedBox(height: 15),
+                    const Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                          SizedBox(width: 10),
+                          Text("Generando PDF...", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.white12,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.download, size: 16, color: Colors.white),
+                            label: const Text("PDF", style: TextStyle(color: Colors.white)),
+                            onPressed: isGenerating
+                                ? null
+                                : () async {
+                                    setDialogState(() => isGenerating = true);
+                                    try {
+                                      Uint8List bytes;
+                                      if (formatoSeleccionado == 'a4') {
+                                        bytes = await OrderPdfHelper.generateA4(pedido: pedidoData, items: itemsImpresion);
+                                      } else {
+                                        bytes = await OrderPdfHelper.generateTicket(pedido: pedidoData, items: itemsImpresion);
+                                      }
+                                      final idCorto = pedidoData['id'].toString().substring(0, 8).toUpperCase();
+                                      await Printing.sharePdf(bytes: bytes, filename: 'pedido_$idCorto.pdf');
+                                    } catch (e) {
+                                      debugPrint("Error sharing pdf: $e");
+                                    } finally {
+                                      setDialogState(() => isGenerating = false);
+                                    }
+                                  },
+                          ),
+                          const SizedBox(width: 8),
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.blueAccent,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.print, size: 16, color: Colors.white),
+                            label: const Text("IMPRIMIR", style: TextStyle(color: Colors.white)),
+                            onPressed: isGenerating
+                                ? null
+                                : () async {
+                                    setDialogState(() => isGenerating = true);
+                                    try {
+                                      Uint8List bytes;
+                                      if (formatoSeleccionado == 'a4') {
+                                        bytes = await OrderPdfHelper.generateA4(pedido: pedidoData, items: itemsImpresion);
+                                      } else {
+                                        bytes = await OrderPdfHelper.generateTicket(pedido: pedidoData, items: itemsImpresion);
+                                      }
+                                      await Printing.layoutPdf(onLayout: (format) async => bytes);
+                                    } catch (e) {
+                                      debugPrint("Error printing: $e");
+                                    } finally {
+                                      setDialogState(() => isGenerating = false);
+                                    }
+                                  },
+                          ),
+                        ],
+                      ),
+                    ),
+                    InkWell(
+                      onTap: () {
+                        Navigator.pop(dialogContext);
+                      },
+                      borderRadius: const BorderRadius.only(
+                        bottomLeft: Radius.circular(15),
+                        bottomRight: Radius.circular(15),
+                      ),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        decoration: const BoxDecoration(
+                          color: Colors.redAccent,
+                          borderRadius: BorderRadius.only(
+                            bottomLeft: Radius.circular(15),
+                            bottomRight: Radius.circular(15),
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: const Text(
+                          "FINALIZAR",
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 14,
+                            letterSpacing: 1.0,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   Future<void> _mostrarOpcionesProducto(Map<String, dynamic> producto, int totalStock) async {
@@ -1822,6 +2043,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
           label: "REGRESAR",
           textColor: Colors.white,
           onPressed: () {
+            ScaffoldMessenger.of(context).clearSnackBars();
             setState(() {
               _isCatalogExpanded = false;
             });
