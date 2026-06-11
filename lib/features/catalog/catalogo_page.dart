@@ -42,7 +42,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
 
   // Sales Module variables
   bool _isEntrega = false;
-  bool _mostrarCatalogo = true;
+  bool _isCatalogExpanded = false;
 
   // Customer fields
   final TextEditingController _nombreClienteController = TextEditingController();
@@ -255,6 +255,73 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       return const SinTiendaPage();
     }
 
+    if (_isCatalogExpanded) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF121212),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFF1E1E1E),
+          elevation: 0,
+          automaticallyImplyLeading: false,
+          title: const Text(
+            "Catálogo de Productos",
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
+          ),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.fullscreen_exit, color: Colors.redAccent),
+              onPressed: () {
+                ScaffoldMessenger.of(context).hideCurrentSnackBar();
+                setState(() {
+                  _isCatalogExpanded = false;
+                });
+              },
+            ),
+            const SizedBox(width: 8),
+          ],
+        ),
+        body: Column(
+          children: [
+            Expanded(
+              child: CustomScrollView(
+                controller: _scrollController,
+                slivers: [
+                  // Search bar or scanner
+                  SliverToBoxAdapter(
+                    child: AnimatedSwitcher(
+                      duration: const Duration(milliseconds: 300),
+                      child: _isScanning ? _buildScanner() : _buildSearchBar(),
+                    ),
+                  ),
+
+                  // Hierarchy filters
+                  SliverToBoxAdapter(
+                    child: FiltrosJerarquiaWidget(
+                      onFiltrosCambiados: (cat, clase, sub) {
+                        _catFiltro = cat;
+                        _claseFiltro = clase;
+                        _subClaseFiltro = sub;
+                        _fetchProductos(refresh: true);
+                      },
+                    ),
+                  ),
+
+                  // Product list (virtualized)
+                  ..._buildProductSliver(),
+
+                  // Bottom spacing
+                  const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       drawer: const MenuLateral(),
@@ -282,32 +349,8 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                 // Customer fields
                 SliverToBoxAdapter(child: _buildCustomerFields()),
 
-                // Search bar or scanner
-                SliverToBoxAdapter(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 300),
-                    child: _isScanning ? _buildScanner() : _buildSearchBar(),
-                  ),
-                ),
-
-                // Hierarchy filters
-                SliverToBoxAdapter(
-                  child: FiltrosJerarquiaWidget(
-                    onFiltrosCambiados: (cat, clase, sub) {
-                      _catFiltro = cat;
-                      _claseFiltro = clase;
-                      _subClaseFiltro = sub;
-                      _fetchProductos(refresh: true);
-                    },
-                  ),
-                ),
-
-                // Catalog header toggle
-                SliverToBoxAdapter(child: _buildCatalogHeader()),
-
-                // Product list (virtualized)
-                if (_mostrarCatalogo)
-                  ..._buildProductSliver(),
+                // Card "Ver Catálogo"
+                SliverToBoxAdapter(child: _buildVerCatalogCard()),
 
                 // Added products section
                 SliverToBoxAdapter(child: _buildAddedProductsSection()),
@@ -323,41 +366,46 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
     );
   }
 
-  // ─── Catalog Header ────────────────────────────────────────────────────────
-  Widget _buildCatalogHeader() {
+  Widget _buildVerCatalogCard() {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4),
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          const Text(
-            "Catálogo de Productos",
-            style: TextStyle(
-              color: Colors.white70,
-              fontWeight: FontWeight.bold,
-              fontSize: 16,
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+      child: Card(
+        color: const Color(0xFF1E1E1E),
+        elevation: 3,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(
+            color: Colors.blueAccent.withValues(alpha: 0.2),
+            width: 1,
+          ),
+        ),
+        child: InkWell(
+          onTap: () {
+            setState(() {
+              _isCatalogExpanded = true;
+            });
+          },
+          borderRadius: BorderRadius.circular(12),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            alignment: Alignment.center,
+            child: const Text(
+              "Ver Catálogo",
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                letterSpacing: 0.5,
+              ),
             ),
           ),
-          TextButton.icon(
-            onPressed: () {
-              setState(() {
-                _mostrarCatalogo = !_mostrarCatalogo;
-              });
-            },
-            icon: Icon(
-              _mostrarCatalogo ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-              color: Colors.blueAccent,
-              size: 20,
-            ),
-            label: Text(
-              _mostrarCatalogo ? "Ocultar" : "Mostrar",
-              style: const TextStyle(color: Colors.blueAccent, fontSize: 13),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
+
+
 
   List<Widget> _buildProductSliver() {
     if (_productos.isEmpty && _isLoading) {
@@ -1120,16 +1168,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       child: InkWell(
         borderRadius: BorderRadius.circular(10),
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => DetalleProductoPage(producto: producto),
-            ),
-          ).then((_) {
-            _fetchProductos(refresh: true);
-          });
-        },
+        onTap: () => _mostrarOpcionesProducto(producto, totalStock),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
           child: Row(
@@ -1186,13 +1225,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                   onTap: () {
                     CartService().agregarProducto(producto, 1, stockActual: totalStock);
                     setState(() {});
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text("Añadido: ${producto['descripcion_1']}"),
-                        backgroundColor: Colors.blueAccent,
-                        duration: const Duration(milliseconds: 800),
-                      ),
-                    );
+                    _mostrarAlertaRetorno(producto['descripcion_1'] ?? 'Producto');
                   },
                   child: Container(
                     padding: const EdgeInsets.all(8),
@@ -1673,6 +1706,129 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       if (mounted) setState(() => _isConfirming = false);
       _fetchProductos(refresh: true);
     }
+  }
+
+  Future<void> _mostrarOpcionesProducto(Map<String, dynamic> producto, int totalStock) async {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            producto['descripcion_1'] ?? 'Opciones de Producto',
+            style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+          content: const Text(
+            "¿Desea ver el detalle de este producto o añadirlo directamente al pedido?",
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          actionsAlignment: MainAxisAlignment.spaceBetween,
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => DetalleProductoPage(producto: producto),
+                  ),
+                ).then((_) {
+                  _fetchProductos(refresh: true);
+                });
+              },
+              child: const Text('VER DETALLE', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.blueAccent,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              onPressed: () async {
+                Navigator.pop(ctx);
+                await _solicitarCantidadYAnadir(producto, totalStock);
+              },
+              child: const Text('AÑADIR', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _solicitarCantidadYAnadir(Map<String, dynamic> producto, int totalStock) async {
+    final ctrl = TextEditingController(text: "1");
+    final int? cantidad = await showDialog<int>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Ingresar Cantidad',
+          style: TextStyle(color: Colors.white, fontSize: 15),
+        ),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+          decoration: const InputDecoration(
+            border: UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.blueAccent),
+            ),
+            focusedBorder: UnderlineInputBorder(
+              borderSide: BorderSide(color: Colors.blueAccent, width: 2),
+            ),
+          ),
+          onTap: () => ctrl.selection = TextSelection(baseOffset: 0, extentOffset: ctrl.text.length),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CANCELAR', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blueAccent),
+            onPressed: () {
+              final n = int.tryParse(ctrl.text);
+              Navigator.pop(ctx, n);
+            },
+            child: const Text('ACEPTAR', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+
+    if (cantidad != null && cantidad > 0) {
+      CartService().agregarProducto(producto, cantidad, stockActual: totalStock);
+      setState(() {});
+      _mostrarAlertaRetorno(producto['descripcion_1'] ?? 'Producto');
+    }
+  }
+
+  void _mostrarAlertaRetorno(String nombreProducto) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: const Text(
+          "Producto añadido. ¿Deseas regresar a la pantalla de venta o seguir agregando?",
+          style: TextStyle(fontSize: 13),
+        ),
+        backgroundColor: Colors.blueAccent,
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: "REGRESAR",
+          textColor: Colors.white,
+          onPressed: () {
+            setState(() {
+              _isCatalogExpanded = false;
+            });
+          },
+        ),
+      ),
+    );
   }
 
   void _showError(String message) {

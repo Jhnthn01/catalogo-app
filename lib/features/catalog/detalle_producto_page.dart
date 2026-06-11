@@ -3,7 +3,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:catalogo_digital_app/widgets/selector_tienda.dart';
-import 'package:catalogo_digital_app/features/cart/carrito_page.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
 import 'package:catalogo_digital_app/widgets/menu_lateral.dart';
 
@@ -202,55 +201,6 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                 ),
               ],
             ),
-          if (mostrarBloquePedidos)
-            ValueListenableBuilder<int>(
-              valueListenable: CartService().itemsCountNotifier,
-              builder: (context, count, child) {
-                return Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    IconButton(
-                      icon: const Icon(
-                        Icons.shopping_cart_outlined,
-                        color: Colors.white,
-                      ),
-                      onPressed: () => Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const CarritoPage(),
-                        ),
-                      ),
-                    ),
-                    if (count > 0)
-                      Positioned(
-                        right: 8,
-                        top: 8,
-                        child: Container(
-                          padding: const EdgeInsets.all(2),
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          constraints: const BoxConstraints(
-                            minWidth: 16,
-                            minHeight: 16,
-                          ),
-                          child: Text(
-                            '$count',
-                            style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ),
-                  ],
-                );
-              },
-            ),
-          if (mostrarBloquePedidos) const SizedBox(width: 8),
         ],
       ),
       body: SingleChildScrollView(
@@ -533,18 +483,6 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
           ),
           backgroundColor: Colors.deepOrange.shade700,
           duration: const Duration(seconds: 4),
-          action: SnackBarAction(
-            label: 'VER CARRITO',
-            textColor: Colors.white,
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const CarritoPage(),
-                ),
-              );
-            },
-          ),
         ),
       );
     } else {
@@ -555,18 +493,6 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
           ),
           backgroundColor: Colors.green.shade800,
           duration: const Duration(seconds: 3),
-          action: SnackBarAction(
-            label: 'VER CARRITO',
-            textColor: Colors.white,
-            onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const CarritoPage(),
-                ),
-              );
-            },
-          ),
         ),
       );
     }
