@@ -1212,12 +1212,28 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                     ),
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    "Stock: $totalStock",
-                    style: TextStyle(
-                      color: totalStock > 0 ? Colors.greenAccent : Colors.redAccent,
-                      fontSize: 12,
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        "Stock: $totalStock",
+                        style: TextStyle(
+                          color: totalStock > 0 ? Colors.greenAccent : Colors.redAccent,
+                          fontSize: 12,
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => _mostrarDisponibilidadTiendas(producto),
+                        child: Padding(
+                          padding: const EdgeInsets.only(left: 4.0),
+                          child: Icon(
+                            Icons.store_mall_directory_rounded,
+                            color: totalStock == 0 ? Colors.orangeAccent : Colors.blueAccent,
+                            size: 16,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1662,6 +1678,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
         'usuario_id': user.id,
         'total': CartService().total,
         'estado': _isEntrega ? 'pendiente' : 'entregado',
+        'total_despachado': _isEntrega ? null : CartService().total,
         'nombre_cliente': nombre,
         'telefono_cliente': telefono,
         'direccion_cliente': _isEntrega ? _direccionController.text.trim() : null,
@@ -1683,10 +1700,37 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                 'producto_id': item.id,
                 'cantidad': item.cantidad,
                 'precio_unitario': item.precio,
+                if (!_isEntrega) 'cantidad_despachada': item.cantidad,
               })
           .toList();
 
       await _supabase.from('detalles_pedido').insert(detalles);
+
+      if (!_isEntrega) {
+        // Venta en Tienda: Deduct stock from inventario
+        final tiendaId = TiendaService().tiendaActivaId.value;
+        for (var item in itemsCopy) {
+          var invQuery = _supabase
+              .from('inventario')
+              .select('id, stock')
+              .eq('producto_id', item.id);
+          
+          if (tiendaId != null) {
+            invQuery = invQuery.eq('tienda_id', tiendaId);
+          }
+          
+          final invList = await invQuery;
+          if (invList.isNotEmpty) {
+            final invRecord = invList.first;
+            final int currentStock = int.tryParse(invRecord['stock'].toString()) ?? 0;
+            final int newStock = currentStock - item.cantidad;
+            await _supabase
+                .from('inventario')
+                .update({'stock': newStock})
+                .eq('id', invRecord['id']);
+          }
+        }
+      }
 
       CartService().limpiar();
       _limpiarFormulario();
@@ -2050,6 +2094,122 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
           },
         ),
       ),
+    );
+  }
+
+  Future<void> _mostrarDisponibilidadTiendas(Map<String, dynamic> producto) async {
+    showDialog(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Row(
+            children: [
+              const Icon(Icons.store_mall_directory_rounded, color: Colors.blueAccent),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  producto['descripcion_1'] ?? 'Disponibilidad',
+                  style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+            ],
+          ),
+          content: FutureBuilder<List<dynamic>>(
+            future: _supabase
+                .from('inventario')
+                .select('stock, tiendas(nombre)')
+                .eq('producto_id', producto['id']),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const SizedBox(
+                  height: 100,
+                  child: Center(
+                    child: CircularProgressIndicator(color: Colors.blueAccent),
+                  ),
+                );
+              }
+              if (snapshot.hasError) {
+                return SizedBox(
+                  height: 100,
+                  child: Center(
+                    child: Text(
+                      "Error al cargar stock: ${snapshot.error}",
+                      style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                    ),
+                  ),
+                );
+              }
+
+              final List<dynamic> inventarios = snapshot.data ?? [];
+              if (inventarios.isEmpty) {
+                return const SizedBox(
+                  height: 80,
+                  child: Center(
+                    child: Text(
+                      "No hay stock registrado en otras tiendas.",
+                      style: TextStyle(color: Colors.white54, fontSize: 13),
+                    ),
+                  ),
+                );
+              }
+
+              return Container(
+                constraints: const BoxConstraints(maxHeight: 250),
+                width: double.maxFinite,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: inventarios.length,
+                  itemBuilder: (context, index) {
+                    final item = inventarios[index];
+                    final tienda = item['tiendas'];
+                    final String tiendaNombre = (tienda != null && tienda['nombre'] != null)
+                        ? tienda['nombre'] as String
+                        : 'Tienda desconocida';
+                    final int stock = (item['stock'] as num?)?.toInt() ?? 0;
+                    final bool hasStock = stock > 0;
+
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              tiendaNombre,
+                              style: TextStyle(
+                                color: hasStock ? Colors.white : Colors.white38,
+                                fontSize: 14,
+                              ),
+                            ),
+                          ),
+                          Text(
+                            "$stock",
+                            style: TextStyle(
+                              color: hasStock ? Colors.greenAccent : Colors.grey,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('CERRAR', style: TextStyle(color: Colors.blueAccent, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
     );
   }
 
