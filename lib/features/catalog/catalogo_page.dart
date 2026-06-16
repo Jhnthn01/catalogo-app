@@ -649,6 +649,50 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
             ],
           ),
 
+          const SizedBox(height: 12),
+          // Payment mode toggle (always shown)
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                "Forma de Pago",
+                style: TextStyle(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 13,
+                ),
+              ),
+              SegmentedButton<bool>(
+                segments: const [
+                  ButtonSegment<bool>(value: false, label: Text('Único', style: TextStyle(fontSize: 12))),
+                  ButtonSegment<bool>(value: true, label: Text('Combinado', style: TextStyle(fontSize: 12))),
+                ],
+                selected: {_isPagoCombinado},
+                onSelectionChanged: (Set<bool> newSelection) {
+                  setState(() {
+                    _isPagoCombinado = newSelection.first;
+                  });
+                },
+                style: SegmentedButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  selectedForegroundColor: Colors.white,
+                  selectedBackgroundColor: Colors.blueAccent.withValues(alpha: 0.3),
+                  foregroundColor: Colors.grey,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (!_isPagoCombinado)
+            _buildDropdownField(
+              controller: _formaPagoController,
+              label: "Método de Pago",
+              icon: Icons.payments_outlined,
+              options: ['Efectivo', 'Tarjeta de Crédito/Débito', 'Yape', 'Plin', 'Transferencia Bancaria'],
+            )
+          else
+            _buildPagoCombinado(),
+
           // Delivery-only fields
           if (_isEntrega) ...[
             const SizedBox(height: 12),
@@ -690,49 +734,6 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
               icon: Icons.receipt_long_outlined,
               options: ['Nota de Venta', 'Boleta', 'Factura'],
             ),
-            const SizedBox(height: 12),
-            // Payment mode toggle
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  "Forma de Pago",
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontWeight: FontWeight.w600,
-                    fontSize: 13,
-                  ),
-                ),
-                SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment<bool>(value: false, label: Text('Único', style: TextStyle(fontSize: 12))),
-                    ButtonSegment<bool>(value: true, label: Text('Combinado', style: TextStyle(fontSize: 12))),
-                  ],
-                  selected: {_isPagoCombinado},
-                  onSelectionChanged: (Set<bool> newSelection) {
-                    setState(() {
-                      _isPagoCombinado = newSelection.first;
-                    });
-                  },
-                  style: SegmentedButton.styleFrom(
-                    backgroundColor: Colors.transparent,
-                    selectedForegroundColor: Colors.white,
-                    selectedBackgroundColor: Colors.blueAccent.withValues(alpha: 0.3),
-                    foregroundColor: Colors.grey,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            if (!_isPagoCombinado)
-              _buildDropdownField(
-                controller: _formaPagoController,
-                label: "Método de Pago",
-                icon: Icons.payments_outlined,
-                options: ['Efectivo', 'Tarjeta de Crédito/Débito', 'Yape', 'Plin', 'Transferencia Bancaria'],
-              )
-            else
-              _buildPagoCombinado(),
             const SizedBox(height: 12),
             _buildTextField(
               controller: _segundoRecogeController,
@@ -1605,6 +1606,24 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
 
     String formaPagoFinal = '';
 
+    if (_isPagoCombinado) {
+      double suma = 0;
+      List<String> partes = [];
+      for (var p in _pagosCombinados) {
+        final ctrl = p['montoController'] as TextEditingController;
+        final monto = double.tryParse(ctrl.text.trim()) ?? 0.0;
+        suma += monto;
+        partes.add("${p['metodo']}: S/.${monto.toStringAsFixed(2)}");
+      }
+      if (suma.toStringAsFixed(2) != CartService().total.toStringAsFixed(2)) {
+        _showError("La suma de los pagos (S/.${suma.toStringAsFixed(2)}) debe coincidir con el total del pedido (S/.${CartService().total.toStringAsFixed(2)}).");
+        return;
+      }
+      formaPagoFinal = partes.join(" | ");
+    } else {
+      formaPagoFinal = _formaPagoController.text.trim();
+    }
+
     if (_isEntrega) {
       if (_direccionController.text.trim().isEmpty) {
         _showError("Por favor, ingresa la dirección de entrega.");
@@ -1619,27 +1638,6 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
         _showError("Por favor, selecciona la fecha y hora de entrega.");
         return;
       }
-
-      if (_isPagoCombinado) {
-        double suma = 0;
-        List<String> partes = [];
-        for (var p in _pagosCombinados) {
-          final ctrl = p['montoController'] as TextEditingController;
-          final monto = double.tryParse(ctrl.text.trim()) ?? 0.0;
-          suma += monto;
-          partes.add("${p['metodo']}: S/.${monto.toStringAsFixed(2)}");
-        }
-        if (suma.toStringAsFixed(2) != CartService().total.toStringAsFixed(2)) {
-          _showError("La suma de los pagos (S/.${suma.toStringAsFixed(2)}) debe coincidir con el total del pedido (S/.${CartService().total.toStringAsFixed(2)}).");
-          return;
-        }
-        formaPagoFinal = partes.join(" | ");
-      } else {
-        formaPagoFinal = _formaPagoController.text.trim();
-      }
-    } else {
-      // In-store: use default values
-      formaPagoFinal = 'Efectivo';
     }
 
     if (items.isEmpty) {
