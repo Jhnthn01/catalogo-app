@@ -688,7 +688,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
               controller: _formaPagoController,
               label: "Método de Pago",
               icon: Icons.payments_outlined,
-              options: ['Efectivo', 'Tarjeta de Crédito/Débito', 'Yape', 'Plin', 'Transferencia Bancaria'],
+              options: ['Efectivo', 'Tarjeta de Crédito/Débito', 'Yape', 'Plin', 'Transferencia Bancaria', 'Crédito'],
             )
           else
             _buildPagoCombinado(),
@@ -861,33 +861,53 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                         contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
                       ),
-                      items: ['Efectivo', 'Tarjeta de Crédito/Débito', 'Yape', 'Plin', 'Transferencia Bancaria']
+                      items: ['Efectivo', 'Tarjeta de Crédito/Débito', 'Yape', 'Plin', 'Transferencia Bancaria', 'Crédito']
                           .map((opt) => DropdownMenuItem(
                                 value: opt,
                                 child: Text(opt, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis),
                               ))
                           .toList(),
                       onChanged: (val) {
-                        if (val != null) setState(() => _pagosCombinados[index]['metodo'] = val);
+                        if (val != null) {
+                          setState(() {
+                            _pagosCombinados[index]['metodo'] = val;
+                            if (val == 'Tarjeta de Crédito/Débito' || val == 'Transferencia Bancaria') {
+                              (pago['montoController'] as TextEditingController).text = CartService().total.toStringAsFixed(2);
+                            }
+                          });
+                        }
                       },
                     ),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     flex: 2,
-                    child: TextField(
-                      controller: pago['montoController'] as TextEditingController,
-                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                      style: const TextStyle(color: Colors.white),
-                      decoration: InputDecoration(
-                        labelText: "Monto S/.",
-                        labelStyle: const TextStyle(color: Colors.grey, fontSize: 12),
-                        filled: true,
-                        fillColor: const Color(0xFF2C2C2C),
-                        isDense: true,
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
-                      ),
+                    child: Builder(
+                      builder: (context) {
+                        final ctrl = pago['montoController'] as TextEditingController;
+                        if (ctrl.text.isEmpty) {
+                          ctrl.text = CartService().total.toStringAsFixed(2);
+                        }
+                        final isBlocked = pago['metodo'] == 'Tarjeta de Crédito/Débito' || pago['metodo'] == 'Transferencia Bancaria';
+                        if (isBlocked) {
+                          ctrl.text = CartService().total.toStringAsFixed(2);
+                        }
+                        return TextField(
+                          controller: ctrl,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          readOnly: isBlocked,
+                          style: const TextStyle(color: Colors.white),
+                          decoration: InputDecoration(
+                            labelText: "Monto S/.",
+                            labelStyle: const TextStyle(color: Colors.grey, fontSize: 12),
+                            filled: true,
+                            fillColor: const Color(0xFF2C2C2C),
+                            isDense: true,
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                          ),
+                        );
+                      }
                     ),
                   ),
                   if (_pagosCombinados.length > 1)
@@ -1687,7 +1707,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
         'segundo_recoge': _isEntrega && _segundoRecogeController.text.trim().isNotEmpty
             ? _segundoRecogeController.text.trim()
             : null,
-        'fecha_entrega': fechaEntregaFinal.toIso8601String(),
+        'fecha_entrega': fechaEntregaFinal.toUtc().toIso8601String(),
         'requiere_regularizacion': requiereRegularizacion,
         'tienda_id': TiendaService().tiendaActivaId.value,
       }).select().single();
@@ -1874,6 +1894,16 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
+                          ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF25D366),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            icon: const Icon(Icons.send, size: 16, color: Colors.white),
+                            label: const Text("WhatsApp", style: TextStyle(color: Colors.white)),
+                            onPressed: () => OrderPdfHelper.enviarWhatsApp(dialogContext, pedidoData),
+                          ),
+                          const SizedBox(width: 8),
                           ElevatedButton.icon(
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.white12,

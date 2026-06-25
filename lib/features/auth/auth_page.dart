@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -26,6 +27,91 @@ class _AuthPageState extends State<AuthPage> {
     _nombreController.dispose();
     _telefonoController.dispose();
     super.dispose();
+  }
+
+  Future<void> _recuperarContrasena() async {
+    final ctrl = TextEditingController(text: _emailController.text.trim());
+    final email = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text(
+          'Recuperar Contraseña',
+          style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Ingresa tu correo para recibir un enlace de recuperación:',
+              style: TextStyle(color: Colors.grey, fontSize: 13),
+            ),
+            const SizedBox(height: 15),
+            TextField(
+              controller: ctrl,
+              style: const TextStyle(color: Colors.white),
+              inputFormatters: [LowerCaseTextFormatter()],
+              decoration: InputDecoration(
+                labelText: 'Correo Electrónico',
+                labelStyle: const TextStyle(color: Colors.grey),
+                enabledBorder: OutlineInputBorder(
+                  borderSide: const BorderSide(color: Colors.grey),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: const BorderSide(color: Colors.blue),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('CANCELAR', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+            onPressed: () => Navigator.pop(ctx, ctrl.text.trim()),
+            child: const Text('ENVIAR', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+
+    if (email != null && email.isNotEmpty) {
+      try {
+        final redirectUrl = kIsWeb
+            ? Uri.base.toString()
+            : 'com.example.catalogodigitalapp://login-callback/';
+
+        await Supabase.instance.client.auth.resetPasswordForEmail(
+          email,
+          redirectTo: redirectUrl,
+        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Enlace de recuperación enviado. Revisa tu correo.'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Error: $e'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+      }
+    }
   }
 
   // 1. Mejoramos la sincronización para que sea más insistente
@@ -141,6 +227,18 @@ class _AuthPageState extends State<AuthPage> {
               _buildField('Correo Electrónico', _emailController, false),
               const SizedBox(height: 15),
               _buildPasswordField(),
+              if (_isLogin) ...[
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: _recuperarContrasena,
+                    child: const Text(
+                      '¿Olvidaste tu contraseña?',
+                      style: TextStyle(color: Colors.blueAccent, fontSize: 13),
+                    ),
+                  ),
+                ),
+              ],
               if (!_isLogin) ...[
                 const SizedBox(height: 15),
                 _buildField(
@@ -178,10 +276,10 @@ class _AuthPageState extends State<AuthPage> {
               TextButton(
                 onPressed: () => setState(() {
                   _isLogin = !_isLogin;
-                  if (_isLogin) {
-                    _nombreController.clear();
-                    _telefonoController.clear();
-                  }
+                  _emailController.clear();
+                  _passwordController.clear();
+                  _nombreController.clear();
+                  _telefonoController.clear();
                 }),
                 child: Text(
                   _isLogin
@@ -238,7 +336,9 @@ class _AuthPageState extends State<AuthPage> {
       controller: controller,
       obscureText: isPassword,
       keyboardType: keyboardType,
-      inputFormatters: inputFormatters,
+      inputFormatters: label == 'Correo Electrónico'
+          ? [LowerCaseTextFormatter(), ...?inputFormatters]
+          : inputFormatters,
       style: const TextStyle(color: Colors.white),
       decoration: InputDecoration(
         labelText: label,
@@ -254,6 +354,19 @@ class _AuthPageState extends State<AuthPage> {
           borderRadius: BorderRadius.circular(10),
         ),
       ),
+    );
+  }
+}
+
+class LowerCaseTextFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+    TextEditingValue oldValue,
+    TextEditingValue newValue,
+  ) {
+    return newValue.copyWith(
+      text: newValue.text.toLowerCase(),
+      selection: newValue.selection,
     );
   }
 }

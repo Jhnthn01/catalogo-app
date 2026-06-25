@@ -153,7 +153,7 @@ class _CarritoPageState extends State<CarritoPage> {
         'telefono_cliente': telefonoCliente,
         'tipo_comprobante': _tipoComprobanteController.text.trim(),
         'forma_pago': formaPagoFinal,
-        'fecha_entrega': fechaEntregaFinal.toIso8601String(),
+        'fecha_entrega': fechaEntregaFinal.toUtc().toIso8601String(),
         'segundo_recoge': _segundoRecogeController.text.trim().isNotEmpty ? _segundoRecogeController.text.trim() : null,
         'requiere_regularizacion': requiereRegularizacion,
         'tienda_id': TiendaService().tiendaActivaId.value,
@@ -273,6 +273,15 @@ class _CarritoPageState extends State<CarritoPage> {
                     Navigator.pop(dialogContext);
                   },
                   child: const Text("CERRAR", style: TextStyle(color: Colors.grey, fontWeight: FontWeight.bold)),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF25D366),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.send, size: 16, color: Colors.white),
+                  label: const Text("WhatsApp", style: TextStyle(color: Colors.white)),
+                  onPressed: () => OrderPdfHelper.enviarWhatsApp(dialogContext, pedido),
                 ),
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
@@ -403,7 +412,7 @@ class _CarritoPageState extends State<CarritoPage> {
                       ),
                       const SizedBox(height: 10),
                       if (!_isPagoCombinado)
-                        _buildDropdown("Método de Pago", _formaPagoController, ['Efectivo', 'Tarjeta de Crédito/Débito', 'Yape', 'Plin', 'Transferencia Bancaria'])
+                        _buildDropdown("Método de Pago", _formaPagoController, ['Efectivo', 'Tarjeta de Crédito/Débito', 'Yape', 'Plin', 'Transferencia Bancaria', 'Crédito'])
                       else
                         _buildPagoCombinado(),
                       const SizedBox(height: 10),
@@ -534,7 +543,7 @@ class _CarritoPageState extends State<CarritoPage> {
                         contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
                       ),
-                      items: ['Efectivo', 'Tarjeta de Crédito/Débito', 'Yape', 'Plin', 'Transferencia Bancaria'].map((opt) {
+                      items: ['Efectivo', 'Tarjeta de Crédito/Débito', 'Yape', 'Plin', 'Transferencia Bancaria', 'Crédito'].map((opt) {
                         return DropdownMenuItem(value: opt, child: Text(opt, style: const TextStyle(fontSize: 12), overflow: TextOverflow.ellipsis));
                       }).toList(),
                       onChanged: (val) {

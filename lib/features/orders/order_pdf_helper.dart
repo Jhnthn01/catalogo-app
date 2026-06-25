@@ -1,8 +1,10 @@
 import 'dart:typed_data';
+import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
 
 class OrderPdfHelper {
@@ -465,5 +467,62 @@ class OrderPdfHelper {
     );
 
     return pdf.save();
+  }
+
+  static Future<void> enviarWhatsApp(BuildContext context, Map<String, dynamic> pedido) async {
+    final String? telefonoRaw = pedido['telefono_cliente']?.toString();
+    if (telefonoRaw == null || telefonoRaw.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("El cliente no tiene un número de teléfono registrado."),
+          backgroundColor: Colors.orangeAccent,
+        ),
+      );
+      return;
+    }
+
+    String cleanPhone = telefonoRaw.replaceAll(RegExp(r'\D'), '');
+    if (cleanPhone.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Número de teléfono inválido."),
+          backgroundColor: Colors.orangeAccent,
+        ),
+      );
+      return;
+    }
+
+    if (cleanPhone.length == 9) {
+      cleanPhone = '51$cleanPhone';
+    }
+
+    final double totalNeto = pedido['total_despachado'] != null
+        ? double.parse(pedido['total_despachado'].toString())
+        : (pedido['total'] != null ? double.parse(pedido['total'].toString()) : 0.0);
+
+    final String idCorto = pedido['id'].toString().substring(0, 8).toUpperCase();
+    final String nombreCliente = pedido['nombre_cliente'] ?? 'cliente';
+
+    final String mensaje = "Estimado(a) $nombreCliente, adjuntamos la información de su pedido número $idCorto por un total de S/. ${totalNeto.toStringAsFixed(2)}. ¡Gracias por su preferencia!";
+    
+    final String urlString = "https://wa.me/$cleanPhone?text=${Uri.encodeComponent(mensaje)}";
+    final Uri url = Uri.parse(urlString);
+
+    try {
+      if (await canLaunchUrl(url)) {
+        await launchUrl(url, mode: LaunchMode.externalApplication);
+      } else {
+        throw 'No se pudo abrir WhatsApp.';
+      }
+    } catch (e) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error al abrir WhatsApp: $e"),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
   }
 }

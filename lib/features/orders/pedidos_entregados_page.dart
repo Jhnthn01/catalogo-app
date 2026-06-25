@@ -197,6 +197,15 @@ class _PedidosEntregadosPageState extends State<PedidosEntregadosPage> {
                 ),
                 ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF25D366),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.send, size: 16, color: Colors.white),
+                  label: const Text("WhatsApp", style: TextStyle(color: Colors.white)),
+                  onPressed: () => OrderPdfHelper.enviarWhatsApp(dialogContext, pedidoData),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
                     backgroundColor: Colors.white12,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
