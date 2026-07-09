@@ -9,6 +9,8 @@ import 'package:catalogo_digital_app/features/orders/pedidos_entregados_page.dar
 import 'package:catalogo_digital_app/features/orders/pedidos_cancelados_page.dart';
 import 'package:catalogo_digital_app/features/profile/perfil_page.dart';
 import 'package:catalogo_digital_app/features/admin/gestion_roles_page.dart';
+import 'package:catalogo_digital_app/features/abastecimiento/ordenes_compra_dashboard_screen.dart';
+import 'package:catalogo_digital_app/features/abastecimiento/gestion_proveedores_page.dart';
 import 'package:catalogo_digital_app/services/tienda_service.dart';
 
 class MenuLateral extends StatefulWidget {
@@ -296,6 +298,62 @@ class _MenuLateralState extends State<MenuLateral> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => const ValidarAjustesPage(),
+                      ),
+                    );
+                  },
+                ),
+              if (rol == 'admin')
+                ListTile(
+                  leading: const Icon(
+                    Icons.local_shipping,
+                    color: Colors.tealAccent,
+                  ),
+                  title: const Text(
+                    'Abastecimiento',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Compras a Proveedores',
+                    style: TextStyle(color: Colors.grey, fontSize: 11),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            const OrdenesCompraDashboardScreen(),
+                      ),
+                    );
+                  },
+                ),
+              if (rol == 'admin')
+                ListTile(
+                  leading: const Icon(
+                    Icons.business,
+                    color: Colors.tealAccent,
+                  ),
+                  title: const Text(
+                    'Proveedores',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Gestión de Proveedores',
+                    style: TextStyle(color: Colors.grey, fontSize: 11),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) =>
+                            const GestionProveedoresPage(),
                       ),
                     );
                   },
