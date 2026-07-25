@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -20,10 +21,24 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
   String? _userRol;
   String? _userId;
 
+  // Controladores para la actualización en tiempo real
+  late final StreamController<List<Map<String, dynamic>>> _pedidosStreamController;
+  RealtimeChannel? _pedidosChannel;
+
   @override
   void initState() {
     super.initState();
+    _pedidosStreamController = StreamController<List<Map<String, dynamic>>>.broadcast();
     _fetchRolYPedidos();
+  }
+
+  @override
+  void dispose() {
+    if (_pedidosChannel != null) {
+      _supabase.removeChannel(_pedidosChannel!);
+    }
+    _pedidosStreamController.close();
+    super.dispose();
   }
 
   Future<void> _fetchRolYPedidos() async {
@@ -42,9 +57,34 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
         setState(() {
           _userRol = perfilData?['rol'] as String? ?? 'cliente';
         });
+        _initRealtimeStream();
       }
     } catch (e) {
       debugPrint("Error fetching rol: $e");
+    }
+  }
+
+  void _initRealtimeStream() {
+    _cargarPedidosStream();
+
+    // Nos suscribimos a cualquier cambio en la tabla pedidos para actualizar la lista en tiempo real
+    _pedidosChannel = _supabase
+        .channel('public:pedidos')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'pedidos',
+          callback: (payload) {
+            _cargarPedidosStream();
+          },
+        )
+        .subscribe();
+  }
+
+  Future<void> _cargarPedidosStream() async {
+    final data = await _fetchPedidos();
+    if (!_pedidosStreamController.isClosed) {
+      _pedidosStreamController.add(data);
     }
   }
 
@@ -88,10 +128,6 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
 
       query = query.neq('estado', 'entregado').neq('estado', 'cancelado');
 
-      if (_userRol != 'admin' && _userRol != 'despachador' && _userRol != 'gerente') {
-        query = query.eq('usuario_id', _userId!);
-      }
-
       // Filtrar por tienda activa
       final tiendaId = TiendaService().tiendaActivaId.value;
       if (tiendaId != null) {
@@ -123,8 +159,8 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
         title: const Text("Pedidos Pendientes"),
         backgroundColor: Colors.transparent,
       ),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _fetchPedidos(),
+      body: StreamBuilder<List<Map<String, dynamic>>>(
+        stream: _pedidosStreamController.stream,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(child: CircularProgressIndicator());
@@ -147,7 +183,7 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
               return PedidoCardItem(
                 pedido: pedidos[index],
                 userRol: _userRol!,
-                onRefresh: () => setState(() {}),
+                onRefresh: () => _cargarPedidosStream(),
               );
             },
           );
