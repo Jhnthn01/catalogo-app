@@ -12,6 +12,7 @@ import 'package:catalogo_digital_app/features/admin/gestion_roles_page.dart';
 import 'package:catalogo_digital_app/features/abastecimiento/ordenes_compra_dashboard_screen.dart';
 import 'package:catalogo_digital_app/features/abastecimiento/gestion_proveedores_page.dart';
 import 'package:catalogo_digital_app/services/tienda_service.dart';
+import 'package:catalogo_digital_app/services/update_service.dart';
 
 class MenuLateral extends StatefulWidget {
   const MenuLateral({super.key});
@@ -358,6 +359,21 @@ class _MenuLateralState extends State<MenuLateral> {
                     );
                   },
                 ),
+              ListTile(
+                leading: const Icon(Icons.system_update_rounded, color: Colors.tealAccent),
+                title: const Text(
+                  'Buscar Actualizaciones',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.w500),
+                ),
+                subtitle: const Text(
+                  'Verificar nueva versión de la app',
+                  style: TextStyle(color: Colors.grey, fontSize: 11),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  UpdateService.verificarActualizacion(context, silencioso: false);
+                },
+              ),
               const Divider(color: Colors.white10),
               ListTile(
                 leading: const Icon(Icons.logout, color: Colors.redAccent),

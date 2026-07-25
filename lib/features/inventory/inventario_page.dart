@@ -11,8 +11,10 @@ import 'package:share_plus/share_plus.dart';
 
 import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:catalogo_digital_app/features/inventory/nuevo_producto_page.dart';
+import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
 import 'package:catalogo_digital_app/features/catalog/detalle_producto_page.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
+import 'package:catalogo_digital_app/features/inventory/tabla_detallada_inventario_screen.dart';
 
 class InventarioPage extends StatefulWidget {
   const InventarioPage({super.key});
@@ -79,7 +81,7 @@ class _InventarioPageState extends State<InventarioPage> {
       final hasta = desde + _tamanhoPagina - 1;
 
       var query = Supabase.instance.client.from('productos').select(
-            'id, sku, upc, alu, descripcion_1, precio_venta, costo, inventario(stock)',
+            'id, sku, upc, alu, descripcion_1, precio_venta, costo, ultimo_costo, costo_medio, inventario(stock)',
           );
 
       if (_searchQuery.isNotEmpty) {
@@ -180,7 +182,7 @@ class _InventarioPageState extends State<InventarioPage> {
       while (hasMore) {
         final List<dynamic> response = await Supabase.instance.client
             .from('inventario')
-            .select('stock, tiendas(nombre), productos(sku, upc, marca, categoria, clase, sub_clase, estilo, descripcion_1, color, costo, precio_venta)')
+            .select('stock, tiendas(nombre), productos(sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta)')
             .eq('tienda_id', tiendaIdSeleccionada!)
             .range(offset, offset + limit - 1);
 
@@ -205,19 +207,21 @@ class _InventarioPageState extends State<InventarioPage> {
       final String nombreTienda = allRows.first['tiendas']?['nombre'] ?? 'tienda';
       
       List<List<dynamic>> rows = [];
-      rows.add(['SKU', 'UPC', 'Marca', 'Categoria', 'Clase', 'Subclase', 'Estilo', 'Descripcion', 'Color', 'Costo', 'Precio', 'Stock', 'Tienda']);
+      rows.add(['SKU', 'UPC', 'ALU', 'Marca', 'Categoria', 'Clase', 'Subclase', 'Estilo', 'Descripcion', 'Descripcion_2', 'Color', 'Costo', 'Precio', 'Stock', 'Tienda']);
       
       for (var row in allRows) {
         final p = row['productos'] ?? {};
         rows.add([
           p['sku'] ?? '',
           p['upc'] ?? '',
+          p['alu'] ?? '',
           p['marca'] ?? '',
           p['categoria'] ?? '',
           p['clase'] ?? '',
           p['sub_clase'] ?? '',
           p['estilo'] ?? '',
           p['descripcion_1'] ?? '',
+          p['descripcion_2'] ?? '',
           p['color'] ?? '',
           p['costo'] ?? 0,
           p['precio_venta'] ?? 0,
@@ -279,12 +283,66 @@ class _InventarioPageState extends State<InventarioPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool esEscritorio = MediaQuery.of(context).size.width > 800;
+
+    if (esEscritorio) {
+      return Scaffold(
+        backgroundColor: const Color(0xFF121212),
+        appBar: AppBar(
+          title: const Text("Inventario / Maestro de Productos"),
+          backgroundColor: const Color(0xFF1E1E1E),
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.upload_file, color: Colors.blueAccent),
+              tooltip: 'Importar CSV (Carga Masiva)',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const CargaMasivaPage()),
+                ).then((val) {
+                  if (val == true) {
+                    _reiniciarLista();
+                    _cargarMasProductos();
+                  }
+                });
+              },
+            ),
+            IconButton(
+              icon: const Icon(Icons.download, color: Colors.greenAccent),
+              tooltip: 'Exportar Maestro CSV',
+              onPressed: _exportarCSV,
+            ),
+          ],
+        ),
+        body: TablaDetalladaInventarioScreen(
+          onRefreshPadre: () {
+            _reiniciarLista();
+            _cargarMasProductos();
+          },
+        ),
+      );
+    }
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
         title: const Text("Inventario"),
         backgroundColor: Colors.transparent,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.upload_file, color: Colors.blueAccent),
+            tooltip: 'Importar CSV (Carga Masiva)',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const CargaMasivaPage()),
+              ).then((val) {
+                if (val == true) {
+                  _reiniciarLista();
+                  _cargarMasProductos();
+                }
+              });
+            },
+          ),
           _isLoading
               ? const Padding(
                   padding: EdgeInsets.symmetric(horizontal: 16.0),

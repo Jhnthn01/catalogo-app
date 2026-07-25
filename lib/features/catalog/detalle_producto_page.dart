@@ -272,6 +272,14 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
             if (mostrarCosto)
               _buildTextField("COSTO", _costoController, enabled: _modoEdicion && puedeGestionFicha),
             const SizedBox(height: 20),
+            // ── Tarjetas informativas de costos (solo admin/gerente) ──────────
+            if (puedeGestionFicha) ...[
+              _buildCostInfoRow(
+                ultimoCosto: widget.producto['ultimo_costo'],
+                costoMedio: widget.producto['costo_medio'],
+              ),
+              const SizedBox(height: 20),
+            ],
             _buildTextField(
               "PRECIO VENTA PÚBLICO",
               _precioVentaController,
@@ -731,6 +739,119 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
               vertical: 12,
             ),
           ),
+        ),
+      ],
+    );
+  }
+
+  /// Muestra las tarjetas de Último Costo y Costo Medio Variable (PMP).
+  /// Solo visible para admin/gerente cuando puedeGestionFicha == true.
+  Widget _buildCostInfoRow({dynamic ultimoCosto, dynamic costoMedio}) {
+    final double? baseCosto = double.tryParse(widget.producto['costo']?.toString() ?? '');
+    final double? rawUc = ultimoCosto != null ? double.tryParse(ultimoCosto.toString()) : null;
+    final double? rawCm = costoMedio != null ? double.tryParse(costoMedio.toString()) : null;
+
+    final double? uc = (rawUc != null && rawUc > 0) ? rawUc : baseCosto;
+    final double? cm = (rawCm != null && rawCm > 0) ? rawCm : baseCosto;
+
+    String _fmt(double? v) =>
+        v != null ? 'S/. ${v.toStringAsFixed(2)}' : '—';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'COSTOS DE ABASTECIMIENTO',
+          style: TextStyle(color: Colors.grey, fontSize: 11, letterSpacing: 0.8),
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            // ── Último Costo de Compra ───────────────────────────────
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.blueGrey.shade900,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.receipt_long, color: Colors.blueAccent, size: 14),
+                        const SizedBox(width: 6),
+                        const Expanded(
+                          child: Text(
+                            'Último Costo\nde Compra',
+                            style: TextStyle(color: Colors.blueAccent, fontSize: 10, fontWeight: FontWeight.w600),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      _fmt(uc),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            // ── Costo Medio Variable (PMP) ───────────────────────────
+            Expanded(
+              child: Tooltip(
+                message: 'El costo medio se recalculó automáticamente\nen la última recepción de abastecimiento.',
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E1E1E),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                textStyle: const TextStyle(color: Colors.white70, fontSize: 11),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.teal.shade900,
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: Colors.tealAccent.withOpacity(0.3)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.auto_graph, color: Colors.tealAccent, size: 14),
+                          const SizedBox(width: 6),
+                          const Expanded(
+                            child: Text(
+                              'Costo Medio\nVariable (PMP)',
+                              style: TextStyle(color: Colors.tealAccent, fontSize: 10, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                          const Icon(Icons.info_outline, color: Colors.white24, size: 14),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        _fmt(cm),
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ],
     );

@@ -37,14 +37,45 @@ class _CargaMasivaPageState extends State<CargaMasivaPage> {
           return;
         }
 
-        // Obtener headers limpios
-        final headers = csvTable.first.map((e) => e.toString().trim().toLowerCase()).toList();
-        
+        // Obtener headers limpios (lowercase + trim)
+        List<String> headers = csvTable.first
+            .map((e) => e.toString().trim().toLowerCase())
+            .toList();
+
+        // ── Tabla de alias: nombres alternativos → nombre canónico ──────────
+        // Permite importar el CSV exportado por la app sin renombrar columnas.
+        const Map<String, String> _alias = {
+          // Tienda
+          'tienda'         : 'codigo_tienda',
+          // Precio
+          'precio'         : 'precio_venta',
+          'precio venta'   : 'precio_venta',
+          'precio_venta'   : 'precio_venta',
+          // Descripción 1
+          'descripcion'    : 'descripcion_1',
+          'descripción'    : 'descripcion_1',
+          'description'    : 'descripcion_1',
+          // Descripción 2
+          'descripcion 2'  : 'descripcion_2',
+          'descripcion_2'  : 'descripcion_2',
+          'descripción 2'  : 'descripcion_2',
+          // Sub-clase
+          'subclase'       : 'sub_clase',
+          'sub clase'      : 'sub_clase',
+          // Marca / Estilo / Color sin cambio pero cubiertas por si acaso
+        };
+
+        // Normalizar headers aplicando alias
+        headers = headers.map((h) => _alias[h] ?? h).toList();
+
         // Headers obligatorios requeridos
         final requiredHeaders = ['sku', 'codigo_tienda', 'precio_venta', 'costo'];
         for (var req in requiredHeaders) {
           if (!headers.contains(req)) {
-            _mostrarError("Falta la columna obligatoria: $req");
+            _mostrarError(
+              "Falta la columna obligatoria: '$req'.\n"
+              "Columnas recibidas: ${headers.join(', ')}",
+            );
             return;
           }
         }
@@ -63,24 +94,35 @@ class _CargaMasivaPageState extends State<CargaMasivaPage> {
           }
 
           // Validar lógicamente las reglas de negocio base
-          final String sku = rowMap['sku']?.toString() ?? '';
-          final String codigoTienda = rowMap['codigo_tienda']?.toString() ?? '';
-          final num precioVenta = num.tryParse(rowMap['precio_venta'].toString()) ?? 0;
-          final num costo = num.tryParse(rowMap['costo'].toString()) ?? 0;
+          final String sku = rowMap['sku']?.toString().trim() ?? '';
+          final String codigoTienda = rowMap['codigo_tienda']?.toString().trim() ?? '';
+          final num precioVenta = num.tryParse(rowMap['precio_venta']?.toString() ?? '') ?? 0;
+          final num costo = num.tryParse(rowMap['costo']?.toString() ?? '') ?? 0;
 
           if (sku.isEmpty || codigoTienda.isEmpty) continue;
           
           if (precioVenta <= costo) {
-            // Se descarta silenciosamente para la BD, o podriamos informar.
+            // Se descarta silenciosamente para la BD.
             continue; 
           }
+
+          // Extraer, sanitizar y mapear explícitamente campos opcionales
+          final String? valorExtraidoAlu = rowMap['alu']?.toString().trim();
+          final String? valorExtraidoDesc1 = rowMap['descripcion_1']?.toString().trim();
+          final String? valorExtraidoDesc2 = rowMap['descripcion_2']?.toString().trim();
+
+          if (valorExtraidoDesc1 != null && valorExtraidoDesc1.isNotEmpty) {
+            rowMap['descripcion_1'] = valorExtraidoDesc1;
+          }
+          rowMap['alu'] = (valorExtraidoAlu != null && valorExtraidoAlu.isNotEmpty) ? valorExtraidoAlu : null;
+          rowMap['descripcion_2'] = (valorExtraidoDesc2 != null && valorExtraidoDesc2.isNotEmpty) ? valorExtraidoDesc2 : null;
 
           payload.add(rowMap);
           if (preview.length <= 5) preview.add(row);
         }
 
         if (payload.isEmpty) {
-          _mostrarError("No se encontraron filas que cumplan las validaciones (Mismo precio que costo, o vacías).");
+          _mostrarError("No se encontraron filas válidas.\n• Verifica que el precio sea mayor al costo.\n• Verifica que SKU y Tienda no estén vacíos.");
           return;
         }
 
@@ -112,8 +154,36 @@ class _CargaMasivaPageState extends State<CargaMasivaPage> {
           _previewData = [];
           _payloadListo = [];
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("🚀 ¡Carga completada con éxito!"), backgroundColor: Colors.green),
+
+        await showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            title: const Row(
+              children: [
+                Icon(Icons.check_circle, color: Colors.greenAccent),
+                SizedBox(width: 10),
+                Text("🚀 Carga Exitosa", style: TextStyle(color: Colors.white)),
+              ],
+            ),
+            content: Text(
+              response.toString(),
+              style: const TextStyle(color: Colors.white70),
+            ),
+            actions: [
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: Colors.greenAccent),
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  if (Navigator.of(context).canPop()) {
+                    Navigator.of(context).pop(true);
+                  }
+                },
+                child: const Text("VOLVER AL INVENTARIO", style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+              ),
+            ],
+          ),
         );
       }
     } catch (e) {
@@ -157,7 +227,7 @@ class _CargaMasivaPageState extends State<CargaMasivaPage> {
                     SizedBox(height: 8),
                     Text("• Formato obligatorio: .CSV delimitado por comas.", style: TextStyle(color: Colors.white70)),
                     Text("• Títulos de Mínimos Requeridos:\n   [sku, codigo_tienda, precio_venta, costo]", style: TextStyle(color: Colors.blueAccent)),
-                    Text("• Títulos Opcionales:\n   [upc, alu, descripcion_1, stock]", style: TextStyle(color: Colors.white70)),
+                    Text("• Títulos Opcionales:\n   [upc, alu, descripcion_1, descripcion_2, stock]", style: TextStyle(color: Colors.white70)),
                     Text("• Las filas con precio de venta menor o igual al costo serán descartadas automáticamente.", style: TextStyle(color: Colors.redAccent, fontSize: 13)),
                   ],
                 ),

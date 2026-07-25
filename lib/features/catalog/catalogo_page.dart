@@ -13,6 +13,7 @@ import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
 import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
 import 'package:catalogo_digital_app/features/orders/pedidos_entregados_page.dart';
 import 'package:catalogo_digital_app/features/orders/order_pdf_helper.dart';
+import 'package:catalogo_digital_app/services/update_service.dart';
 import 'package:printing/printing.dart';
 
 class CatalogoPage extends StatefulWidget {
@@ -85,6 +86,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
         _userRol = TiendaService().usuarioRol ?? 'cliente';
       });
       _fetchProductos(refresh: true);
+      UpdateService.verificarActualizacion(context, silencioso: true);
     }
   }
 
@@ -163,7 +165,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       final rol = _userRol?.toLowerCase() ?? 'cliente';
       final bool esOperativo = !(rol == 'admin' || rol == 'administrador' || rol == 'gerente');
 
-      final fields = 'id, sku, upc, alu, marca, descripcion_1, descripcion_2, precio_venta, categoria, clase, sub_clase';
+      final fields = 'id, sku, upc, alu, marca, descripcion_1, descripcion_2, precio_venta, costo, ultimo_costo, costo_medio, categoria, clase, sub_clase';
       final invSelect = (tiendaId != null || esOperativo)
           ? '$fields, inventario!inner(stock, tienda_id)'
           : '$fields, inventario(stock, tienda_id)';
