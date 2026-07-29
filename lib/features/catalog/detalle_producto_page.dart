@@ -28,6 +28,8 @@ class DetalleProductoPage extends StatefulWidget {
 class _DetalleProductoPageState extends State<DetalleProductoPage> {
   late TextEditingController _nameController;
   late TextEditingController _skuController;
+  late TextEditingController _aluController;
+  late TextEditingController _descripcion2Controller;
   late TextEditingController _costoController;
   late TextEditingController _precioVentaController;
 
@@ -44,7 +46,11 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     _nameController = TextEditingController(
       text: widget.producto['descripcion_1'],
     );
+    _descripcion2Controller = TextEditingController(
+      text: widget.producto['descripcion_2'],
+    );
     _skuController = TextEditingController(text: widget.producto['sku']);
+    _aluController = TextEditingController(text: widget.producto['alu']);
     _costoController = TextEditingController(
       text: widget.producto['costo']?.toString() ?? '0.0',
     );
@@ -209,12 +215,30 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _buildTextField(
-              "Nombre del Producto",
+              "Nombre del Producto (Descripción 1)",
               _nameController,
               enabled: _modoEdicion && puedeGestionFicha,
             ),
-            const SizedBox(height: 20),
-            _buildTextField("SKU", _skuController, enabled: false),
+            const SizedBox(height: 15),
+            _buildTextField(
+              "Descripción 2 / Especificaciones",
+              _descripcion2Controller,
+              enabled: _modoEdicion && puedeGestionFicha,
+            ),
+            const SizedBox(height: 15),
+            Row(
+              children: [
+                Expanded(child: _buildTextField("SKU", _skuController, enabled: false)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _buildTextField(
+                    "ALU",
+                    _aluController,
+                    enabled: _modoEdicion && puedeGestionFicha,
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 20),
             if (userRol == 'admin' || userRol == 'gerente') ...[
               const Text(
@@ -682,7 +706,9 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
 
     try {
       await Supabase.instance.client.from('productos').update({
-        'descripcion_1': _nameController.text,
+        'descripcion_1': _nameController.text.trim(),
+        'descripcion_2': _descripcion2Controller.text.trim(),
+        'alu': _aluController.text.trim(),
         'precio_venta': double.tryParse(_precioVentaController.text),
         'costo': double.tryParse(_costoController.text),
       }).eq('id', widget.producto['id']);

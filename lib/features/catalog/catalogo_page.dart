@@ -165,7 +165,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       final rol = _userRol?.toLowerCase() ?? 'cliente';
       final bool esOperativo = !(rol == 'admin' || rol == 'administrador' || rol == 'gerente');
 
-      final fields = 'id, sku, upc, alu, marca, descripcion_1, descripcion_2, precio_venta, costo, ultimo_costo, costo_medio, categoria, clase, sub_clase';
+      final fields = 'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio';
       final invSelect = (tiendaId != null || esOperativo)
           ? '$fields, inventario!inner(stock, tienda_id)'
           : '$fields, inventario(stock, tienda_id)';
@@ -1186,7 +1186,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       }
     }
 
-    final String upcTexto = producto['upc'] ?? producto['sku'] ?? 'Sin código';
+    final String skuTexto = producto['sku'] ?? producto['upc'] ?? 'Sin código';
 
     return Card(
       color: const Color(0xFF1E1E1E),
@@ -1216,7 +1216,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      "UPC: $upcTexto",
+                      "SKU: $skuTexto",
                       style: const TextStyle(color: Colors.grey, fontSize: 12),
                     ),
                   ],
