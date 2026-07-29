@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:catalogo_digital_app/core/currency_formatter.dart';
 
 class DetallePedidoPage extends StatelessWidget {
   final Map<String, dynamic> pedido;
@@ -329,13 +330,21 @@ class DetallePedidoPage extends StatelessWidget {
             itemCount: detalles.length,
             itemBuilder: (context, index) {
               final d = detalles[index];
-              final String name = d['productos']?['descripcion_1'] ?? 'Producto Desconocido';
-              final String? upc = d['productos']?['upc'];
+              final prod = d['productos'] ?? {};
+              final String name = prod['descripcion_1'] ?? 'Producto Desconocido';
+              final String? desc2 = prod['descripcion_2'];
+              final String? sku = prod['sku'];
+              final String? alu = prod['alu'];
+              final String? upc = prod['upc'];
               final int qtyOriginal = d['cantidad'] ?? 0;
               final int qtyDespachada = d['cantidad_despachada'] ?? 0;
               final double precio = double.tryParse(d['precio_unitario'].toString()) ?? 0.0;
 
-              final String shortName = name.length > 12 ? '${name.substring(0, 12)}...' : name;
+              final String codeInfo = [
+                if (sku != null && sku.isNotEmpty) 'SKU: $sku',
+                if (alu != null && alu.isNotEmpty) 'ALU: $alu',
+                if (upc != null && upc.isNotEmpty) 'UPC: $upc',
+              ].join(' | ');
 
               return Column(
                 children: [
@@ -350,13 +359,22 @@ class DetallePedidoPage extends StatelessWidget {
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                shortName,
-                                style: const TextStyle(color: Colors.white70, fontSize: 12, fontWeight: FontWeight.bold),
+                                name,
+                                style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
-                              if (upc != null && upc.isNotEmpty)
+                              if (desc2 != null && desc2.isNotEmpty)
                                 Text(
-                                  upc,
-                                  style: const TextStyle(color: Colors.grey, fontSize: 9),
+                                  desc2,
+                                  style: const TextStyle(color: Colors.white38, fontSize: 10),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              if (codeInfo.isNotEmpty)
+                                Text(
+                                  codeInfo,
+                                  style: const TextStyle(color: Colors.tealAccent, fontSize: 9),
                                 ),
                             ],
                           ),
@@ -383,10 +401,10 @@ class DetallePedidoPage extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         SizedBox(
-                          width: 60,
+                          width: 75,
                           child: Center(
                             child: Text(
-                              "S/.${precio.toStringAsFixed(2)}",
+                              CurrencyFormatter.format(precio),
                               style: const TextStyle(color: Colors.white70, fontSize: 11),
                             ),
                           ),

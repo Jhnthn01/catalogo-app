@@ -120,8 +120,12 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
             cantidad_despachada,
             productos (
               id,
+              sku,
+              upc,
+              alu,
               descripcion_1,
-              upc
+              descripcion_2,
+              marca
             )
           )
         ''');

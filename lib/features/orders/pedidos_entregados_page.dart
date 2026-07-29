@@ -79,8 +79,13 @@ class _PedidosEntregadosPageState extends State<PedidosEntregadosPage> {
             precio_unitario,
             cantidad_despachada,
             productos (
+              id,
+              sku,
+              upc,
+              alu,
               descripcion_1,
-              upc
+              descripcion_2,
+              marca
             )
           )
         ''');
