@@ -90,7 +90,7 @@ class _CrearOrdenCompraScreenState extends State<CrearOrdenCompraScreen> {
             .order('nombre'),
         Supabase.instance.client
             .from('productos')
-            .select('id, sku, descripcion_1, costo')
+            .select('id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio')
             .order('descripcion_1'),
       ]);
 

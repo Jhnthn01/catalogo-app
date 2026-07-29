@@ -13,6 +13,7 @@ class _DetalleItem {
   final String sku;
   final double cantidadSolicitada;
   final double cantidadRecibidaAnterior;
+  final double costoUnitario;
   final TextEditingController ingresoCtrl;
 
   _DetalleItem({
@@ -22,6 +23,7 @@ class _DetalleItem {
     required this.sku,
     required this.cantidadSolicitada,
     required this.cantidadRecibidaAnterior,
+    this.costoUnitario = 0.0,
   }) : ingresoCtrl = TextEditingController(text: '0');
 
   void dispose() => ingresoCtrl.dispose();
@@ -84,7 +86,7 @@ class _RecepcionOrdenCompraScreenState
       // Detalles con JOIN a productos
       final detallesResp = await Supabase.instance.client
           .from('detalles_orden_compra')
-          .select('id, producto_id, cantidad, cantidad_recibida, productos(descripcion_1, sku)')
+          .select('id, producto_id, cantidad, cantidad_recibida, costo_unitario, productos(descripcion_1, sku)')
           .eq('orden_compra_id', widget.ordenId);
 
       if (!mounted) return;
@@ -111,6 +113,8 @@ class _RecepcionOrdenCompraScreenState
             cantidadRecibidaAnterior:
                 double.tryParse(d['cantidad_recibida']?.toString() ?? '0') ??
                     0,
+            costoUnitario:
+                double.tryParse(d['costo_unitario']?.toString() ?? '0') ?? 0.0,
           );
         }).toList();
 
@@ -143,7 +147,7 @@ class _RecepcionOrdenCompraScreenState
     setState(() => _guardando = true);
 
     try {
-      // 1. Actualizar cada detalle sumando el ingreso de hoy
+      // 1. Actualizar cada detalle sumando el ingreso de hoy y actualizar ultimo_costo del producto
       for (final item in _items) {
         if (item.ingresoHoy <= 0) continue;
         final nuevaCantRecibida = item.cantidadRecibidaAnterior + item.ingresoHoy;
@@ -151,6 +155,13 @@ class _RecepcionOrdenCompraScreenState
             .from('detalles_orden_compra')
             .update({'cantidad_recibida': nuevaCantRecibida})
             .eq('id', item.detalleId);
+
+        if (item.costoUnitario > 0) {
+          await Supabase.instance.client
+              .from('productos')
+              .update({'ultimo_costo': item.costoUnitario})
+              .eq('id', item.productoId);
+        }
       }
 
       // 2. Re-leer el estado actualizado de todos los detalles para determinar el estado de la orden
