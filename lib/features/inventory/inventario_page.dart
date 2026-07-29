@@ -80,9 +80,27 @@ class _InventarioPageState extends State<InventarioPage> {
       final desde = _paginaActual * _tamanhoPagina;
       final hasta = desde + _tamanhoPagina - 1;
 
+      final tiendaId = TiendaService().tiendaActivaId.value;
+      final rol = TiendaService().usuarioRol?.toLowerCase() ?? 'cliente';
+      final bool esAdmin = rol == 'admin' || rol == 'administrador' || rol == 'gerente';
+
+      // Admin/gerente sin tienda activa: trae inventario de TODAS las tiendas (sum global)
+      // Con tienda activa: filtra solo esa tienda
+      final String invJoin = (tiendaId != null || !esAdmin)
+          ? 'inventario!inner(stock, tienda_id)'
+          : 'inventario(stock, tienda_id)';
+
       var query = Supabase.instance.client.from('productos').select(
-            'id, sku, upc, alu, descripcion_1, precio_venta, costo, ultimo_costo, costo_medio, inventario(stock)',
+            'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio, $invJoin',
           );
+
+      // Filtrar stock por tienda activa
+      if (tiendaId != null) {
+        query = query.eq('inventario.tienda_id', tiendaId);
+      } else if (!esAdmin) {
+        // Usuario operativo sin tienda asignada: no mostrar nada
+        query = query.eq('inventario.tienda_id', -1);
+      }
 
       if (_searchQuery.isNotEmpty) {
         query = query.or(

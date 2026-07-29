@@ -7,6 +7,7 @@ import 'package:catalogo_digital_app/features/catalog/detalle_producto_page.dart
 import 'package:catalogo_digital_app/features/inventory/nuevo_producto_page.dart';
 import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
+import 'package:catalogo_digital_app/services/tienda_service.dart';
 
 class TablaDetalladaInventarioScreen extends StatefulWidget {
   final VoidCallback? onRefreshPadre;
@@ -67,11 +68,24 @@ class _TablaDetalladaInventarioScreenState
       }
 
       // 2. Consulta filtrada directamente en Supabase (PostgreSQL)
+      final tiendaId = TiendaService().tiendaActivaId.value;
+      final rol = TiendaService().usuarioRol?.toLowerCase() ?? 'cliente';
+      final bool esAdmin = rol == 'admin' || rol == 'administrador' || rol == 'gerente';
+      final String invJoin = (tiendaId != null || !esAdmin)
+          ? 'inventario!inner(stock, tienda_id)'
+          : 'inventario(stock, tienda_id)';
+
       var query = Supabase.instance.client
           .from('productos')
           .select(
-            'id, sku, upc, alu, marca, categoria, clase, sub_clase, descripcion_1, precio_venta, costo, ultimo_costo, costo_medio, inventario(stock)',
+            'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio, $invJoin',
           );
+
+      if (tiendaId != null) {
+        query = query.eq('inventario.tienda_id', tiendaId);
+      } else if (!esAdmin) {
+        query = query.eq('inventario.tienda_id', -1);
+      }
 
       final q = _searchQuery.trim();
       if (q.isNotEmpty) {
@@ -131,11 +145,24 @@ class _TablaDetalladaInventarioScreenState
 
     _isLoadingMas = true;
     try {
+      final tiendaIdMas = TiendaService().tiendaActivaId.value;
+      final rolMas = TiendaService().usuarioRol?.toLowerCase() ?? 'cliente';
+      final bool esAdminMas = rolMas == 'admin' || rolMas == 'administrador' || rolMas == 'gerente';
+      final String invJoinMas = (tiendaIdMas != null || !esAdminMas)
+          ? 'inventario!inner(stock, tienda_id)'
+          : 'inventario(stock, tienda_id)';
+
       var query = Supabase.instance.client
           .from('productos')
           .select(
-            'id, sku, upc, alu, marca, categoria, clase, sub_clase, descripcion_1, precio_venta, costo, ultimo_costo, costo_medio, inventario(stock)',
+            'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio, $invJoinMas',
           );
+
+      if (tiendaIdMas != null) {
+        query = query.eq('inventario.tienda_id', tiendaIdMas);
+      } else if (!esAdminMas) {
+        query = query.eq('inventario.tienda_id', -1);
+      }
 
       if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
       if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
@@ -616,10 +643,13 @@ class _TablaDetalladaInventarioScreenState
       onLoadMoreTarget: (targetIndex) => _cargarMasProductosHasta(targetIndex),
     );
 
-    return SingleChildScrollView(
+    final ScrollController horizontalScrollController = ScrollController();
+
+    return Padding(
       padding: const EdgeInsets.all(16),
       child: Card(
         color: const Color(0xFF1E1E1E),
+        clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
           side: const BorderSide(color: Colors.white10),
@@ -632,93 +662,122 @@ class _TablaDetalladaInventarioScreenState
                   bodySmall: const TextStyle(color: Colors.white70),
                 ),
           ),
-          child: PaginatedDataTable(
-            header: Row(
-              children: [
-                const Text(
-                  'Maestro de Productos',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontWeight: FontWeight.bold,
-                    fontSize: 16,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: Colors.blueAccent.withOpacity(0.15),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: Text(
-                    '${_productosFiltrados.length} registros',
-                    style: const TextStyle(
-                      color: Colors.blueAccent,
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: Scrollbar(
+                      controller: horizontalScrollController,
+                      thumbVisibility: true,
+                      trackVisibility: true,
+                      scrollbarOrientation: ScrollbarOrientation.bottom,
+                      child: SingleChildScrollView(
+                        controller: horizontalScrollController,
+                        scrollDirection: Axis.horizontal,
+                        child: SingleChildScrollView(
+                          scrollDirection: Axis.vertical,
+                          child: DataTable(
+                            headingRowColor: WidgetStateProperty.all(const Color(0xFF262626)),
+                            dataRowMinHeight: 48,
+                            dataRowMaxHeight: 56,
+                            columnSpacing: 28,
+                            sortColumnIndex: _sortColumnIndex,
+                            sortAscending: _sortAscending,
+                            columns: [
+                              DataColumn(
+                                label: const Text('SKU', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                onSort: (idx, asc) => _onSort(idx, asc),
+                              ),
+                              DataColumn(
+                                label: const Text('Producto', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                onSort: (idx, asc) => _onSort(idx, asc),
+                              ),
+                              DataColumn(
+                                label: const Text('Categoría', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                onSort: (idx, asc) => _onSort(idx, asc),
+                              ),
+                              DataColumn(
+                                numeric: true,
+                                label: const Text('Stock Total', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                onSort: (idx, asc) => _onSort(idx, asc),
+                              ),
+                              DataColumn(
+                                numeric: true,
+                                label: const Text('Último Costo', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                onSort: (idx, asc) => _onSort(idx, asc),
+                              ),
+                              DataColumn(
+                                numeric: true,
+                                label: const Text('Costo Medio (PMP)', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                onSort: (idx, asc) => _onSort(idx, asc),
+                              ),
+                              DataColumn(
+                                numeric: true,
+                                label: const Text('Precio Venta', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                onSort: (idx, asc) => _onSort(idx, asc),
+                              ),
+                              DataColumn(
+                                numeric: true,
+                                label: const Text('Valor Stock', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                onSort: (idx, asc) => _onSort(idx, asc),
+                              ),
+                              DataColumn(
+                                numeric: true,
+                                label: const Text('Margen %', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                onSort: (idx, asc) => _onSort(idx, asc),
+                              ),
+                              const DataColumn(
+                                label: Text('Acciones', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                            rows: List.generate(
+                              _productosFiltrados.length < _rowsPerPage ? _productosFiltrados.length : _rowsPerPage,
+                              (index) => dataSource.getRow(index)!,
+                            ).whereType<DataRow>().toList(),
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
-            rowsPerPage: _rowsPerPage > 100 ? 100 : _rowsPerPage,
-            availableRowsPerPage: const [10, 15, 25, 50, 100],
-            onRowsPerPageChanged: (val) {
-              if (val != null) {
-                setState(() => _rowsPerPage = val);
-              }
+                  // Paginador separado abajo
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    color: const Color(0xFF1E1E1E),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Row(
+                          children: [
+                            const Text('Filas por página: ', style: TextStyle(color: Colors.white70, fontSize: 13)),
+                            DropdownButton<int>(
+                              value: _rowsPerPage,
+                              dropdownColor: const Color(0xFF2A2A2A),
+                              style: const TextStyle(color: Colors.white, fontSize: 13),
+                              underline: const SizedBox(),
+                              items: const [10, 15, 25, 50, 100].map((val) {
+                                return DropdownMenuItem<int>(
+                                  value: val,
+                                  child: Text('$val'),
+                                );
+                              }).toList(),
+                              onChanged: (val) {
+                                if (val != null) setState(() => _rowsPerPage = val);
+                              },
+                            ),
+                          ],
+                        ),
+                        Text(
+                          'Mostrando ${_productosFiltrados.length} registros',
+                          style: const TextStyle(color: Colors.white70, fontSize: 13),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              );
             },
-            sortColumnIndex: _sortColumnIndex,
-            sortAscending: _sortAscending,
-            showFirstLastButtons: true,
-            columns: [
-              DataColumn(
-                label: const Text('SKU', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-                onSort: (idx, asc) => _onSort(idx, asc),
-              ),
-              DataColumn(
-                label: const Text('Producto', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-                onSort: (idx, asc) => _onSort(idx, asc),
-              ),
-              DataColumn(
-                label: const Text('Categoría', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-                onSort: (idx, asc) => _onSort(idx, asc),
-              ),
-              DataColumn(
-                numeric: true,
-                label: const Text('Stock Total', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-                onSort: (idx, asc) => _onSort(idx, asc),
-              ),
-              DataColumn(
-                numeric: true,
-                label: const Text('Último Costo', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-                onSort: (idx, asc) => _onSort(idx, asc),
-              ),
-              DataColumn(
-                numeric: true,
-                label: const Text('Costo Medio (PMP)', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-                onSort: (idx, asc) => _onSort(idx, asc),
-              ),
-              DataColumn(
-                numeric: true,
-                label: const Text('Precio Venta', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-                onSort: (idx, asc) => _onSort(idx, asc),
-              ),
-              DataColumn(
-                numeric: true,
-                label: const Text('Valor Stock', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-                onSort: (idx, asc) => _onSort(idx, asc),
-              ),
-              DataColumn(
-                numeric: true,
-                label: const Text('Margen %', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-                onSort: (idx, asc) => _onSort(idx, asc),
-              ),
-              const DataColumn(
-                label: Text('Acciones', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
-              ),
-            ],
-            source: dataSource,
           ),
         ),
       ),
@@ -802,26 +861,50 @@ class _InventarioDataTableSource extends DataTableSource {
         return index.isEven ? const Color(0xFF1A1A1A) : const Color(0xFF222222);
       }),
       cells: [
-        // SKU
+        // SKU & ALU
         DataCell(
-          Text(
-            prod['sku'] ?? '—',
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 13,
-            ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Text(
+                prod['sku'] ?? '—',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
+              ),
+              if (prod['alu'] != null && prod['alu'].toString().trim().isNotEmpty)
+                Text(
+                  'ALU: ${prod['alu']}',
+                  style: const TextStyle(color: Colors.blueAccent, fontSize: 10),
+                ),
+            ],
           ),
         ),
-        // Producto (descripcion_1)
+        // Producto (descripcion_1 & descripcion_2)
         DataCell(
           SizedBox(
-            width: 200,
-            child: Text(
-              prod['descripcion_1'] ?? 'Sin nombre',
-              style: const TextStyle(color: Colors.white, fontSize: 13),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
+            width: 220,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  prod['descripcion_1'] ?? 'Sin nombre',
+                  style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (prod['descripcion_2'] != null && prod['descripcion_2'].toString().trim().isNotEmpty)
+                  Text(
+                    prod['descripcion_2'].toString(),
+                    style: const TextStyle(color: Colors.white38, fontSize: 11),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
             ),
           ),
         ),
