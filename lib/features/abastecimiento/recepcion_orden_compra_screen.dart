@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:catalogo_digital_app/data/models/kardex_model.dart';
+import 'package:catalogo_digital_app/services/kardex_service.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Modelo de fila de detalle
@@ -57,6 +59,7 @@ class _RecepcionOrdenCompraScreenState
   // Datos de cabecera de la orden
   String _proveedorNombre = '';
   String _estadoActual = '';
+  int? _tiendaId;
 
   bool _guardando = false;
 
@@ -79,7 +82,7 @@ class _RecepcionOrdenCompraScreenState
       // Cabecera de la orden
       final ordenResp = await Supabase.instance.client
           .from('ordenes_compra')
-          .select('estado, proveedores(razon_social)')
+          .select('estado, tienda_id, proveedores(razon_social)')
           .eq('id', widget.ordenId)
           .single();
 
@@ -100,6 +103,9 @@ class _RecepcionOrdenCompraScreenState
                 as String? ??
             '—';
         _estadoActual = ordenResp['estado'] as String? ?? '';
+        _tiendaId = ordenResp['tienda_id'] != null
+            ? int.tryParse(ordenResp['tienda_id'].toString())
+            : null;
 
         _items = detallesList.map((d) {
           final prod = d['productos'] as Map<String, dynamic>? ?? {};
@@ -162,6 +168,19 @@ class _RecepcionOrdenCompraScreenState
               .update({'ultimo_costo': item.costoUnitario})
               .eq('id', item.productoId);
         }
+
+        // Registrar evento ENTRADA / ORDEN_COMPRA en Kardex
+        await KardexService().registrarMovimiento(
+          KardexMovimiento(
+            productoId: item.productoId,
+            tiendaId: _tiendaId,
+            tipoMovimiento: 'ENTRADA',
+            origenTipo: 'ORDEN_COMPRA',
+            origenId: widget.ordenId,
+            cantidad: item.ingresoHoy,
+            costoUnitario: item.costoUnitario > 0 ? item.costoUnitario : null,
+          ),
+        );
       }
 
       // 2. Re-leer el estado actualizado de todos los detalles para determinar el estado de la orden

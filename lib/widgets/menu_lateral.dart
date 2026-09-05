@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:catalogo_digital_app/features/inventory/inventario_page.dart';
+import 'package:catalogo_digital_app/features/inventory/kardex_screen.dart';
 import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
 import 'package:catalogo_digital_app/features/inventory/validar_ajustes_page.dart';
 import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
@@ -63,18 +64,33 @@ class _MenuLateralState extends State<MenuLateral> {
             children: [
               DrawerHeader(
                 decoration: BoxDecoration(
-                  color: Colors.blue.withValues(alpha: 0.8),
-                  image: const DecorationImage(
-                    image: NetworkImage('https://via.placeholder.com/350x150'),
-                    fit: BoxFit.cover,
-                    opacity: 0.2,
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Colors.blue.shade900,
+                      Colors.teal.shade800,
+                    ],
                   ),
                 ),
-                child: const Column(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    Text(
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.store_mall_directory,
+                        color: Colors.tealAccent,
+                        size: 28,
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
                       'FERRETERÍA PRO',
                       style: TextStyle(
                         color: Colors.white,
@@ -82,7 +98,7 @@ class _MenuLateralState extends State<MenuLateral> {
                         fontWeight: FontWeight.bold,
                       ),
                     ),
-                    Text(
+                    const Text(
                       'Panel de Control',
                       style: TextStyle(color: Colors.white70, fontSize: 13),
                     ),
@@ -147,7 +163,7 @@ class _MenuLateralState extends State<MenuLateral> {
               ListTile(
                 leading: const Icon(Icons.storefront, color: Colors.white70),
                 title: const Text(
-                  'Catálogo',
+                  'Ventas',
                   style: TextStyle(color: Colors.white),
                 ),
                 onTap: () => Navigator.pushNamedAndRemoveUntil(
@@ -259,6 +275,26 @@ class _MenuLateralState extends State<MenuLateral> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => const InventarioPage(),
+                      ),
+                    );
+                  },
+                ),
+              if (tieneAccesoInventario)
+                ListTile(
+                  leading: const Icon(
+                    Icons.history_toggle_off,
+                    color: Colors.tealAccent,
+                  ),
+                  title: const Text(
+                    'Kardex / Movimientos',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const KardexScreen(),
                       ),
                     );
                   },

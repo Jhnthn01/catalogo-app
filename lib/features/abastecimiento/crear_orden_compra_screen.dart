@@ -283,16 +283,66 @@ class _CrearOrdenCompraScreenState extends State<CrearOrdenCompraScreen> {
   }
 
   void _filtrarProductos() {
-    final q = _busquedaCtrl.text.toLowerCase();
+    final rawQuery = _busquedaCtrl.text.trim();
+    if (rawQuery.isEmpty) {
+      setState(() => _productosFiltrados = _productos);
+      return;
+    }
+
+    final List<String> tokens = rawQuery.contains('%')
+        ? rawQuery.split('%').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
+        : [rawQuery];
+
+    final filtered = _productos.where((p) {
+      final desc = (p['descripcion_1'] as String? ?? '').toLowerCase();
+      final sku = (p['sku'] as String? ?? '').toLowerCase();
+      final upc = (p['upc'] as String? ?? '').toLowerCase();
+      final marca = (p['marca'] as String? ?? '').toLowerCase();
+      final alu = (p['alu'] as String? ?? '').toLowerCase();
+
+      return tokens.any((t) {
+        final token = t.toLowerCase();
+        return desc.contains(token) ||
+            sku.contains(token) ||
+            upc.contains(token) ||
+            marca.contains(token) ||
+            alu.contains(token);
+      });
+    }).toList();
+
+    if (tokens.length > 1) {
+      int primerMatchIndex(Map<String, dynamic> p) {
+        final desc = (p['descripcion_1'] as String? ?? '').toLowerCase();
+        final sku = (p['sku'] as String? ?? '').toLowerCase();
+        final upc = (p['upc'] as String? ?? '').toLowerCase();
+        final marca = (p['marca'] as String? ?? '').toLowerCase();
+        final alu = (p['alu'] as String? ?? '').toLowerCase();
+
+        for (int i = 0; i < tokens.length; i++) {
+          final token = tokens[i].toLowerCase();
+          if (desc.contains(token) ||
+              sku.contains(token) ||
+              upc.contains(token) ||
+              marca.contains(token) ||
+              alu.contains(token)) {
+            return i;
+          }
+        }
+        return 999;
+      }
+
+      filtered.sort((a, b) {
+        final idxA = primerMatchIndex(a);
+        final idxB = primerMatchIndex(b);
+        if (idxA != idxB) return idxA.compareTo(idxB);
+        final nomA = (a['descripcion_1'] as String? ?? '').toLowerCase();
+        final nomB = (b['descripcion_1'] as String? ?? '').toLowerCase();
+        return nomA.compareTo(nomB);
+      });
+    }
+
     setState(() {
-      _productosFiltrados = q.isEmpty
-          ? _productos
-          : _productos.where((p) {
-              final desc =
-                  (p['descripcion_1'] as String? ?? '').toLowerCase();
-              final sku = (p['sku'] as String? ?? '').toLowerCase();
-              return desc.contains(q) || sku.contains(q);
-            }).toList();
+      _productosFiltrados = filtered;
     });
   }
 

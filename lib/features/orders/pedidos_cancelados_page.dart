@@ -35,6 +35,7 @@ class _PedidosCanceladosPageState extends State<PedidosCanceladosPage> {
           .from('pedidos')
           .select('''
             id,
+            usuario_id,
             nombre_cliente,
             total,
             estado,
@@ -51,9 +52,36 @@ class _PedidosCanceladosPageState extends State<PedidosCanceladosPage> {
       }
 
       final response = await query.order('creado_en', ascending: false);
+      final pedidos = List<Map<String, dynamic>>.from(response);
+
+      // Obtener perfiles por usuario_id de forma independiente
+      final usuarioIds = pedidos
+          .map((p) => p['usuario_id'])
+          .where((id) => id != null)
+          .toSet()
+          .toList();
+
+      Map<String, Map<String, dynamic>> perfilesMap = {};
+      if (usuarioIds.isNotEmpty) {
+        final perfilesResponse = await _supabase
+            .from('perfiles')
+            .select('id, nombre, email')
+            .inFilter('id', usuarioIds);
+        for (final p in perfilesResponse) {
+          perfilesMap[p['id'].toString()] = p;
+        }
+      }
+
+      final merged = pedidos.map((p) {
+        final uid = p['usuario_id']?.toString();
+        return {
+          ...p,
+          'perfiles': uid != null ? perfilesMap[uid] : null,
+        };
+      }).toList();
 
       setState(() {
-        _pedidos = List<Map<String, dynamic>>.from(response);
+        _pedidos = merged;
         _isLoading = false;
       });
     } catch (e) {
@@ -64,8 +92,48 @@ class _PedidosCanceladosPageState extends State<PedidosCanceladosPage> {
     }
   }
 
+  String _filterId = '';
+  String _filterVendedor = '';
+
   @override
   Widget build(BuildContext context) {
+    // Extraer vendedores únicos
+    final Set<String> vendedoresSet = {};
+    for (var p in _pedidos) {
+      final perfiles = p['perfiles'];
+      if (perfiles is Map) {
+        final n = perfiles['nombre']?.toString().trim();
+        final e = perfiles['email']?.toString().trim();
+        if (n != null && n.isNotEmpty) {
+          vendedoresSet.add(n);
+        } else if (e != null && e.isNotEmpty) {
+          vendedoresSet.add(e);
+        }
+      }
+    }
+    final List<String> vendedoresList = vendedoresSet.toList()..sort();
+
+    final filteredList = _pedidos.where((p) {
+      if (_filterId.trim().isNotEmpty) {
+        final idStr = (p['id'] ?? '').toString().toLowerCase();
+        final numCliente = (p['nombre_cliente'] ?? '').toString().toLowerCase();
+        final term = _filterId.trim().toLowerCase();
+        if (!idStr.contains(term) && !numCliente.contains(term)) return false;
+      }
+      if (_filterVendedor.trim().isNotEmpty) {
+        final perfiles = p['perfiles'];
+        String vend = "Sistema / Sin Asignar";
+        if (perfiles is Map) {
+          final n = perfiles['nombre']?.toString().trim();
+          final e = perfiles['email']?.toString().trim();
+          if (n != null && n.isNotEmpty) vend = n;
+          else if (e != null && e.isNotEmpty) vend = e;
+        }
+        if (vend != _filterVendedor) return false;
+      }
+      return true;
+    }).toList();
+
     return Scaffold(
       backgroundColor: const Color(0xFF121212),
       appBar: AppBar(
@@ -107,37 +175,100 @@ class _PedidosCanceladosPageState extends State<PedidosCanceladosPage> {
                     ],
                   ),
                 )
-              : _pedidos.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
+              : Column(
+                  children: [
+                    // Barra de Filtros
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+                      color: const Color(0xFF1E1E1E),
+                      child: Row(
                         children: [
-                          Icon(Icons.check_circle_outline, color: Colors.grey.shade600, size: 64),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Sin pedidos cancelados',
-                            style: TextStyle(color: Colors.grey.shade500, fontSize: 18, fontWeight: FontWeight.w500),
+                          Expanded(
+                            flex: 3,
+                            child: TextField(
+                              onChanged: (val) => setState(() => _filterId = val),
+                              style: const TextStyle(color: Colors.white, fontSize: 13),
+                              decoration: InputDecoration(
+                                hintText: "Nº Pedido / Cliente...",
+                                hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
+                                prefixIcon: const Icon(Icons.search, color: Colors.blueAccent, size: 18),
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+                                filled: true,
+                                fillColor: const Color(0xFF2A2A2A),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                              ),
+                            ),
                           ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'No hay pedidos con estado cancelado.',
-                            style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            flex: 3,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF2A2A2A),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _filterVendedor.isEmpty ? null : _filterVendedor,
+                                  hint: const Text("Vendedor", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                                  isExpanded: true,
+                                  dropdownColor: const Color(0xFF2A2A2A),
+                                  icon: const Icon(Icons.arrow_drop_down, color: Colors.blueAccent),
+                                  items: [
+                                    const DropdownMenuItem<String>(
+                                      value: "",
+                                      child: Text("Todos vendedores", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                                    ),
+                                    ...vendedoresList.map((v) => DropdownMenuItem<String>(
+                                          value: v,
+                                          child: Text(v, style: const TextStyle(color: Colors.white, fontSize: 12), overflow: TextOverflow.ellipsis),
+                                        )),
+                                  ],
+                                  onChanged: (val) => setState(() => _filterVendedor = val ?? ""),
+                                ),
+                              ),
+                            ),
                           ),
                         ],
                       ),
-                    )
-                  : RefreshIndicator(
-                      onRefresh: _fetchPedidosCancelados,
-                      color: Colors.redAccent,
-                      child: ListView.builder(
-                        padding: const EdgeInsets.all(15),
-                        itemCount: _pedidos.length,
-                        itemBuilder: (context, index) {
-                          final p = _pedidos[index];
-                          return _PedidoCanceladoCard(pedido: p);
-                        },
-                      ),
                     ),
+                    Expanded(
+                      child: filteredList.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.check_circle_outline, color: Colors.grey.shade600, size: 64),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'Sin pedidos cancelados',
+                                    style: TextStyle(color: Colors.grey.shade500, fontSize: 18, fontWeight: FontWeight.w500),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'No hay pedidos que coincidan con la búsqueda.',
+                                    style: TextStyle(color: Colors.grey.shade600, fontSize: 13),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : RefreshIndicator(
+                              onRefresh: _fetchPedidosCancelados,
+                              color: Colors.redAccent,
+                              child: ListView.builder(
+                                padding: const EdgeInsets.all(15),
+                                itemCount: filteredList.length,
+                                itemBuilder: (context, index) {
+                                  final p = filteredList[index];
+                                  return _PedidoCanceladoCard(pedido: p);
+                                },
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
     );
   }
 }
@@ -223,6 +354,19 @@ class _PedidoCanceladoCard extends StatelessWidget {
                   child: Text(
                     cliente,
                     style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                const Icon(Icons.badge_outlined, color: Colors.blueAccent, size: 15),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    "Vendedor: ${pedido['perfiles'] != null && (pedido['perfiles']['nombre']?.toString().trim().isNotEmpty ?? false) ? pedido['perfiles']['nombre'] : (pedido['perfiles']?['email'] ?? 'Sistema / Sin Asignar')}",
+                    style: const TextStyle(color: Colors.blueAccent, fontSize: 12, fontWeight: FontWeight.w500),
                   ),
                 ),
               ],

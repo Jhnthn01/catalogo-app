@@ -18,6 +18,28 @@ class ProductoService {
     String? subClase,
     int? tiendaId,
   }) async {
+    final q = searchQuery?.trim() ?? '';
+    final List<String> tokens = q.isEmpty
+        ? []
+        : (q.contains('%')
+            ? q.split('%').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
+            : [q]);
+
+    if (tokens.isNotEmpty) {
+      final params = <String, dynamic>{
+        'p_tokens': tokens,
+        'p_tienda_id': tiendaId,
+        'p_categoria': categoria,
+        'p_clase': clase,
+        'p_sub_clase': subClase,
+        'p_limit': limit,
+        'p_offset': offset,
+      };
+
+      final List<dynamic> data = await _supabase.rpc('buscar_productos', params: params);
+      return data.map((json) => ProductoModel.fromJson(Map<String, dynamic>.from(json))).toList();
+    }
+
     final fieldsWithInventario = tiendaId != null
         ? '$selectFieldsComplete, inventario!inner(stock, tienda_id)'
         : '$selectFieldsComplete, inventario(stock, tienda_id)';
@@ -26,13 +48,6 @@ class ProductoService {
 
     if (tiendaId != null) {
       query = query.eq('inventario.tienda_id', tiendaId);
-    }
-
-    if (searchQuery != null && searchQuery.trim().isNotEmpty) {
-      final q = searchQuery.trim();
-      query = query.or(
-        'descripcion_1.ilike.%$q%,sku.ilike.%$q%,upc.ilike.%$q%,alu.ilike.%$q%,marca.ilike.%$q%',
-      );
     }
 
     if (categoria != null) query = query.eq('categoria', categoria);

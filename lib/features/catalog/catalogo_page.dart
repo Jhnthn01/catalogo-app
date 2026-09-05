@@ -14,6 +14,8 @@ import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
 import 'package:catalogo_digital_app/features/orders/pedidos_entregados_page.dart';
 import 'package:catalogo_digital_app/features/orders/order_pdf_helper.dart';
 import 'package:catalogo_digital_app/services/update_service.dart';
+import 'package:catalogo_digital_app/data/models/kardex_model.dart';
+import 'package:catalogo_digital_app/services/kardex_service.dart';
 import 'package:printing/printing.dart';
 
 class CatalogoPage extends StatefulWidget {
@@ -182,65 +184,74 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
       if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
 
-      final List<dynamic> data;
-      if (_searchQuery.trim().isNotEmpty) {
-        final term = _searchQuery.trim();
-        final List<String> tokens = term.split(RegExp(r'\s+'));
-        final List<String> orClauses = [];
-        for (var token in tokens) {
-          if (token.isNotEmpty) {
-            orClauses.add('descripcion_1.ilike.%$token%');
-            orClauses.add('descripcion_2.ilike.%$token%');
-            orClauses.add('sku.ilike.%$token%');
-            orClauses.add('upc.ilike.%$token%');
-            orClauses.add('marca.ilike.%$token%');
-            orClauses.add('alu.ilike.%$token%');
+      final q = _searchQuery.trim();
+      final List<String> tokens = q.isEmpty
+          ? []
+          : (q.contains('%')
+              ? q.split('%').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
+              : [q]);
+
+      if (tokens.isNotEmpty) {
+        final params = <String, dynamic>{
+          'p_tokens': tokens,
+          'p_tienda_id': tiendaId,
+          'p_categoria': _catFiltro,
+          'p_clase': _claseFiltro,
+          'p_sub_clase': _subClaseFiltro,
+          'p_limit': 500,
+          'p_offset': 0,
+        };
+
+        final List<dynamic> data = await _supabase.rpc(
+          'buscar_productos',
+          params: params,
+        );
+
+        final list = List<dynamic>.from(data);
+
+        if (tokens.length > 1) {
+          int firstMatchIndex(dynamic prod) {
+            final desc1 = (prod['descripcion_1'] ?? '').toString().toLowerCase();
+            final sku = (prod['sku'] ?? '').toString().toLowerCase();
+            final upc = (prod['upc'] ?? '').toString().toLowerCase();
+            final marca = (prod['marca'] ?? '').toString().toLowerCase();
+            final alu = (prod['alu'] ?? '').toString().toLowerCase();
+
+            for (int i = 0; i < tokens.length; i++) {
+              final t = tokens[i].toLowerCase();
+              if (desc1.contains(t) ||
+                  sku.contains(t) ||
+                  upc.contains(t) ||
+                  marca.contains(t) ||
+                  alu.contains(t)) {
+                return i;
+              }
+            }
+            return tokens.length;
           }
-        }
-        if (orClauses.isNotEmpty) {
-          query = query.or(orClauses.join(','));
-        }
-        data = await query.order('descripcion_1', ascending: true).limit(1000);
-      } else {
-        data = await query.order('descripcion_1', ascending: true).range(desde, hasta);
-      }
 
-      if (!mounted || currentFetchId != _fetchId) return;
-
-      if (_searchQuery.trim().isNotEmpty) {
-        final List<String> palabras = _searchQuery.toLowerCase().trim().split(RegExp(r'\s+'));
-        final filtered = data.where((prod) {
-          final skuLower = (prod['sku'] ?? '').toString().toLowerCase().trim();
-          final upcLower = (prod['upc'] ?? '').toString().toLowerCase();
-          final desc1 = (prod['descripcion_1'] ?? '').toString().toLowerCase();
-          final desc2 = (prod['descripcion_2'] ?? '').toString().toLowerCase();
-          final marca = (prod['marca'] ?? '').toString().toLowerCase();
-          final alu = (prod['alu'] ?? '').toString().toLowerCase();
-          final cat = (prod['categoria'] ?? '').toString().toLowerCase();
-          final cla = (prod['clase'] ?? '').toString().toLowerCase();
-          final sub = (prod['sub_clase'] ?? '').toString().toLowerCase();
-
-          return palabras.every((palabraIngresada) {
-            final String pi = palabraIngresada;
-            return skuLower == pi ||
-                skuLower.contains(pi) ||
-                upcLower.contains(pi) ||
-                desc1.contains(pi) ||
-                marca.contains(pi) ||
-                desc2.contains(pi) ||
-                alu.contains(pi) ||
-                cat.contains(pi) ||
-                cla.contains(pi) ||
-                sub.contains(pi);
+          list.sort((a, b) {
+            final idxA = firstMatchIndex(a);
+            final idxB = firstMatchIndex(b);
+            if (idxA != idxB) return idxA.compareTo(idxB);
+            final nomA = (a['descripcion_1'] ?? '').toString().toLowerCase();
+            final nomB = (b['descripcion_1'] ?? '').toString().toLowerCase();
+            return nomA.compareTo(nomB);
           });
-        }).toList();
+        }
+
+        if (!mounted || currentFetchId != _fetchId) return;
 
         setState(() {
-          _productos = filtered;
+          _productos = list;
           _hasMore = false;
           _isLoading = false;
         });
       } else {
+        final data = await query.order('descripcion_1', ascending: true).range(desde, hasta);
+
+        if (!mounted || currentFetchId != _fetchId) return;
+
         setState(() {
           _productos.addAll(data);
           _paginaActual++;
@@ -269,7 +280,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
           elevation: 0,
           automaticallyImplyLeading: false,
           title: const Text(
-            "Catálogo de Productos",
+            "Punto de Ventas",
             style: TextStyle(
               color: Colors.white,
               fontWeight: FontWeight.bold,
@@ -301,6 +312,10 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                       duration: const Duration(milliseconds: 300),
                       child: _isScanning ? _buildScanner() : _buildSearchBar(),
                     ),
+                  ),
+
+                  SliverToBoxAdapter(
+                    child: _buildChipsBusqueda(),
                   ),
 
                   // Hierarchy filters
@@ -397,7 +412,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
             padding: const EdgeInsets.symmetric(vertical: 24),
             alignment: Alignment.center,
             child: const Text(
-              "Ver Catálogo",
+              "Ver Productos (Ventas)",
               style: TextStyle(
                 color: Colors.white,
                 fontWeight: FontWeight.bold,
@@ -639,7 +654,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
               Expanded(
                 child: _buildTextField(
                   controller: _telefonoClienteController,
-                  label: "Teléfono *",
+                  label: _isEntrega ? "Teléfono *" : "Teléfono (Opcional)",
                   icon: Icons.phone_outlined,
                   keyboardType: TextInputType.phone,
                   inputFormatters: [
@@ -1100,6 +1115,121 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
             contentPadding: const EdgeInsets.symmetric(vertical: 15),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildChipsBusqueda() {
+    final q = _searchQuery.trim();
+    final List<String> tokens = q.contains('%')
+        ? q.split('%').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
+        : (q.isNotEmpty ? [q] : []);
+
+    if (tokens.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Prioridad de búsqueda:',
+                style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+              if (tokens.length > 1) ...[
+                const SizedBox(width: 6),
+                const Text(
+                  '(Toca una etiqueta para moverla al 1er lugar)',
+                  style: TextStyle(color: Colors.blueAccent, fontSize: 10, fontStyle: FontStyle.italic),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: List.generate(tokens.length, (index) {
+              final token = tokens[index];
+              final bool esPrincipal = index == 0 && tokens.length > 1;
+
+              return InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: () {
+                  if (index == 0) return;
+                  final newTokens = [token, ...tokens.where((t) => t != token)];
+                  final newQuery = newTokens.join('%');
+                  setState(() {
+                    _searchQuery = newQuery;
+                    _searchController.text = newQuery;
+                  });
+                  _fetchProductos(refresh: true);
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: esPrincipal
+                        ? Colors.amber.withValues(alpha: 0.2)
+                        : Colors.blueAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: esPrincipal ? Colors.amberAccent : Colors.blueAccent.withValues(alpha: 0.4),
+                      width: esPrincipal ? 1.5 : 1.0,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        esPrincipal ? Icons.star_rounded : Icons.search_rounded,
+                        color: esPrincipal ? Colors.amberAccent : Colors.blueAccent,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        token,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: esPrincipal ? FontWeight.bold : FontWeight.w500,
+                        ),
+                      ),
+                      if (esPrincipal) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.amberAccent.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            'Prioridad 1',
+                            style: TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(width: 6),
+                      InkWell(
+                        onTap: () {
+                          final newTokens = List<String>.from(tokens)..remove(token);
+                          final newQuery = newTokens.join('%');
+                          setState(() {
+                            _searchQuery = newQuery;
+                            _searchController.text = newQuery;
+                          });
+                          _fetchProductos(refresh: true);
+                        },
+                        child: const Icon(Icons.close, color: Colors.white70, size: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ),
+        ],
       ),
     );
   }
@@ -1617,13 +1747,23 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       _showError("Por favor, ingresa el nombre del cliente.");
       return;
     }
-    if (telefono.isEmpty) {
-      _showError("Por favor, ingresa el teléfono del cliente.");
-      return;
-    }
-    if (telefono.length != 9) {
-      _showError("El teléfono debe tener exactamente 9 dígitos.");
-      return;
+
+    // Teléfono solo es obligatorio si es una entrega (delivery)
+    if (_isEntrega) {
+      if (telefono.isEmpty) {
+        _showError("Por favor, ingresa el teléfono del cliente para la entrega.");
+        return;
+      }
+      if (telefono.length != 9) {
+        _showError("El teléfono debe tener exactamente 9 dígitos.");
+        return;
+      }
+    } else {
+      // En Venta en Tienda, si se ingresó teléfono opcional, debe tener 9 dígitos
+      if (telefono.isNotEmpty && telefono.length != 9) {
+        _showError("El teléfono ingresado debe tener exactamente 9 dígitos.");
+        return;
+      }
     }
 
     String formaPagoFinal = '';
@@ -1740,15 +1880,36 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
           }
           
           final invList = await invQuery;
+          double? stockAnterior;
+          double? stockResultante;
+
           if (invList.isNotEmpty) {
             final invRecord = invList.first;
             final int currentStock = int.tryParse(invRecord['stock'].toString()) ?? 0;
             final int newStock = currentStock - item.cantidad;
+            stockAnterior = currentStock.toDouble();
+            stockResultante = newStock.toDouble();
+
             await _supabase
                 .from('inventario')
                 .update({'stock': newStock})
                 .eq('id', invRecord['id']);
           }
+
+          // Registrar evento SALIDA / PEDIDO en Kardex
+          await KardexService().registrarMovimiento(
+            KardexMovimiento(
+              productoId: item.id.toString(),
+              tiendaId: tiendaId,
+              tipoMovimiento: 'SALIDA',
+              origenTipo: 'PEDIDO',
+              origenId: pedido['id'].toString(),
+              cantidad: item.cantidad.toDouble(),
+              costoUnitario: item.precio,
+              stockAnterior: stockAnterior,
+              stockResultante: stockResultante,
+            ),
+          );
         }
       }
 

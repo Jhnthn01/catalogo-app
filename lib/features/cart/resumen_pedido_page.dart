@@ -118,7 +118,7 @@ class ResumenPedidoPage extends StatelessWidget {
                     backgroundColor: Colors.white12),
                 onPressed: () => Navigator.pushNamedAndRemoveUntil(
                     context, '/', (route) => false),
-                child: const Text("VOLVER AL CATÁLOGO",
+                child: const Text("VOLVER A VENTAS",
                     style: TextStyle(color: Colors.white)),
               ),
             ),

@@ -57,6 +57,7 @@ class _PedidosEntregadosPageState extends State<PedidosEntregadosPage> {
           .from('pedidos')
           .select('''
           id,
+          usuario_id,
           total,
           total_despachado,
           estado,
@@ -106,8 +107,33 @@ class _PedidosEntregadosPageState extends State<PedidosEntregadosPage> {
 
       // Order by created_at or creado_en descending
       final response = await query.order('creado_en', ascending: false);
+      final pedidos = List<Map<String, dynamic>>.from(response);
 
-      return List<Map<String, dynamic>>.from(response);
+      // Obtener perfiles por usuario_id de forma independiente
+      final usuarioIds = pedidos
+          .map((p) => p['usuario_id'])
+          .where((id) => id != null)
+          .toSet()
+          .toList();
+
+      Map<String, Map<String, dynamic>> perfilesMap = {};
+      if (usuarioIds.isNotEmpty) {
+        final perfilesResponse = await _supabase
+            .from('perfiles')
+            .select('id, nombre, email')
+            .inFilter('id', usuarioIds);
+        for (final p in perfilesResponse) {
+          perfilesMap[p['id'].toString()] = p;
+        }
+      }
+
+      return pedidos.map((p) {
+        final uid = p['usuario_id']?.toString();
+        return {
+          ...p,
+          'perfiles': uid != null ? perfilesMap[uid] : null,
+        };
+      }).toList();
     } catch (e) {
       debugPrint("Error en Pedidos Entregados: $e");
       return [];
@@ -270,6 +296,9 @@ class _PedidosEntregadosPageState extends State<PedidosEntregadosPage> {
     );
   }
 
+  String _filterId = '';
+  String _filterVendedor = '';
+
   @override
   Widget build(BuildContext context) {
     if (_userRol == null) {
@@ -306,124 +335,237 @@ class _PedidosEntregadosPageState extends State<PedidosEntregadosPage> {
             );
           }
 
-          final list = snapshot.data!;
+          final todos = snapshot.data!;
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: list.length,
-            itemBuilder: (context, index) {
-              final pedido = list[index];
-              final DateTime date = DateTime.parse(pedido['creado_en'] ?? pedido['created_at']).toLocal();
-              final double originalTotal = double.tryParse((pedido['total'] ?? 0).toString()) ?? 0.0;
-              final double finalTotal = double.tryParse((pedido['total_despachado'] ?? originalTotal).toString()) ?? originalTotal;
-              final String clientName = pedido['nombre_cliente'] ?? 'Sin Nombre';
-              final String entregadoA = pedido['entregado_a'] ?? 'No especificado';
+          // Extraer vendedores únicos para el dropdown
+          final Set<String> vendedoresSet = {};
+          for (var p in todos) {
+            final perfiles = p['perfiles'];
+            if (perfiles is Map) {
+              final n = perfiles['nombre']?.toString().trim();
+              final e = perfiles['email']?.toString().trim();
+              if (n != null && n.isNotEmpty) {
+                vendedoresSet.add(n);
+              } else if (e != null && e.isNotEmpty) {
+                vendedoresSet.add(e);
+              }
+            }
+          }
+          final List<String> vendedoresList = vendedoresSet.toList()..sort();
 
-              return Card(
+          // Filtrar lista
+          final list = todos.where((p) {
+            if (_filterId.trim().isNotEmpty) {
+              final idStr = (p['id'] ?? '').toString().toLowerCase();
+              final numCliente = (p['nombre_cliente'] ?? '').toString().toLowerCase();
+              final term = _filterId.trim().toLowerCase();
+              if (!idStr.contains(term) && !numCliente.contains(term)) return false;
+            }
+            if (_filterVendedor.trim().isNotEmpty) {
+              final perfiles = p['perfiles'];
+              String vend = "Sistema / Sin Asignar";
+              if (perfiles is Map) {
+                final n = perfiles['nombre']?.toString().trim();
+                final e = perfiles['email']?.toString().trim();
+                if (n != null && n.isNotEmpty) vend = n;
+                else if (e != null && e.isNotEmpty) vend = e;
+              }
+              if (vend != _filterVendedor) return false;
+            }
+            return true;
+          }).toList();
+
+          return Column(
+            children: [
+              // Barra de Filtros
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
                 color: const Color(0xFF1E1E1E),
-                margin: const EdgeInsets.only(bottom: 12),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
-                  side: const BorderSide(color: Colors.white10),
-                ),
-                child: ListTile(
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  trailing: IconButton(
-                    icon: const Icon(Icons.print, color: Colors.blueAccent, size: 24),
-                    tooltip: 'Reimprimir / Descargar',
-                    onPressed: () {
-                      final details = pedido['detalles_pedido'] as List<dynamic>? ?? [];
-                      final itemsImpresion = details.map((d) {
-                        return CartItem(
-                          id: d['id'].toString(),
-                          nombre: d['productos']?['descripcion_1']?.toString() ?? 'Producto',
-                          precio: double.tryParse(d['precio_unitario'].toString()) ?? 0.0,
-                          cantidad: (d['cantidad_despachada'] ?? d['cantidad']) as int,
-                        );
-                      }).toList();
-                      _mostrarDialogoImpresion(pedido, itemsImpresion);
-                    },
-                  ),
-                  title: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        "Pedido #${pedido['id'].toString().substring(0, 8)}",
-                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.green.withOpacity(0.15),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: Colors.green.withOpacity(0.3)),
-                        ),
-                        child: const Text(
-                          "ENTREGADO",
-                          style: TextStyle(color: Colors.greenAccent, fontSize: 9, fontWeight: FontWeight.bold),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: TextField(
+                        onChanged: (val) => setState(() => _filterId = val),
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: "Nº Pedido / Cliente...",
+                          hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
+                          prefixIcon: const Icon(Icons.search, color: Colors.blueAccent, size: 18),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+                          filled: true,
+                          fillColor: const Color(0xFF2A2A2A),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
                         ),
                       ),
-                    ],
-                  ),
-                  subtitle: Padding(
-                    padding: const EdgeInsets.only(top: 8.0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          "Fecha: ${DateFormat('dd/MM/yyyy hh:mm a').format(date)}",
-                          style: const TextStyle(color: Colors.grey, fontSize: 11),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          "Cliente: $clientName",
-                          style: const TextStyle(color: Colors.white70, fontSize: 12),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            const Text("Recogió: ", style: TextStyle(color: Colors.grey, fontSize: 11)),
-                            Text(
-                              entregadoA,
-                              style: TextStyle(
-                                color: entregadoA == 'Titular' ? Colors.blueAccent : Colors.orangeAccent,
-                                fontWeight: FontWeight.bold,
-                                fontSize: 11,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            const Text(
-                              "Monto cobrado:",
-                              style: TextStyle(color: Colors.grey, fontSize: 11, fontWeight: FontWeight.bold),
-                            ),
-                            Text(
-                              "S/.${finalTotal.toStringAsFixed(2)}",
-                              style: const TextStyle(color: Colors.greenAccent, fontSize: 14, fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                      ],
                     ),
-                  ),
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => DetallePedidoPage(
-                          pedido: pedido,
-                          userRol: _userRol!,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 3,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2A2A2A),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _filterVendedor.isEmpty ? null : _filterVendedor,
+                            hint: const Text("Vendedor", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                            isExpanded: true,
+                            dropdownColor: const Color(0xFF2A2A2A),
+                            icon: const Icon(Icons.arrow_drop_down, color: Colors.blueAccent),
+                            items: [
+                              const DropdownMenuItem<String>(
+                                value: "",
+                                child: Text("Todos vendedores", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                              ),
+                              ...vendedoresList.map((v) => DropdownMenuItem<String>(
+                                    value: v,
+                                    child: Text(v, style: const TextStyle(color: Colors.white, fontSize: 12), overflow: TextOverflow.ellipsis),
+                                  )),
+                            ],
+                            onChanged: (val) => setState(() => _filterVendedor = val ?? ""),
+                          ),
                         ),
                       ),
-                    );
-                  },
+                    ),
+                  ],
                 ),
-              );
-            },
+              ),
+              Expanded(
+                child: list.isEmpty
+                    ? const Center(
+                        child: Text(
+                          "No hay pedidos que coincidan con el filtro",
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: list.length,
+                        itemBuilder: (context, index) {
+                          final pedido = list[index];
+                          final DateTime date = DateTime.parse(pedido['creado_en'] ?? pedido['created_at']).toLocal();
+                          final double originalTotal = double.tryParse((pedido['total'] ?? 0).toString()) ?? 0.0;
+                          final double finalTotal = double.tryParse((pedido['total_despachado'] ?? originalTotal).toString()) ?? originalTotal;
+                          final String clientName = pedido['nombre_cliente'] ?? 'Sin Nombre';
+                          final String entregadoA = pedido['entregado_a'] ?? 'No especificado';
+
+                          return Card(
+                            color: const Color(0xFF1E1E1E),
+                            margin: const EdgeInsets.only(bottom: 12),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(15),
+                              side: const BorderSide(color: Colors.white10),
+                            ),
+                            child: ListTile(
+                              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                              trailing: IconButton(
+                                icon: const Icon(Icons.print, color: Colors.blueAccent, size: 24),
+                                tooltip: 'Reimprimir / Descargar',
+                                onPressed: () {
+                                  final details = pedido['detalles_pedido'] as List<dynamic>? ?? [];
+                                  final itemsImpresion = details.map((d) {
+                                    return CartItem(
+                                      id: d['id'].toString(),
+                                      nombre: d['productos']?['descripcion_1']?.toString() ?? 'Producto',
+                                      precio: double.tryParse(d['precio_unitario'].toString()) ?? 0.0,
+                                      cantidad: (d['cantidad_despachada'] ?? d['cantidad']) as int,
+                                    );
+                                  }).toList();
+                                  _mostrarDialogoImpresion(pedido, itemsImpresion);
+                                },
+                              ),
+                              title: Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    "Pedido #${pedido['id'].toString().substring(0, 8)}",
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                  ),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green.withOpacity(0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: Colors.green.withOpacity(0.3)),
+                                    ),
+                                    child: const Text(
+                                      "ENTREGADO",
+                                      style: TextStyle(color: Colors.greenAccent, fontSize: 9, fontWeight: FontWeight.bold),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              subtitle: Padding(
+                                padding: const EdgeInsets.only(top: 8.0),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      "Fecha: ${DateFormat('dd/MM/yyyy hh:mm a').format(date)}",
+                                      style: const TextStyle(color: Colors.grey, fontSize: 11),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      "Cliente: $clientName",
+                                      style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      "Vendedor: ${pedido['perfiles'] != null && (pedido['perfiles']['nombre']?.toString().trim().isNotEmpty ?? false) ? pedido['perfiles']['nombre'] : (pedido['perfiles']?['email'] ?? 'Sistema / Sin Asignar')}",
+                                      style: const TextStyle(color: Colors.blueAccent, fontSize: 11, fontWeight: FontWeight.w500),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Row(
+                                      children: [
+                                        const Text("Recogió: ", style: TextStyle(color: Colors.grey, fontSize: 11)),
+                                        Text(
+                                          entregadoA,
+                                          style: TextStyle(
+                                            color: entregadoA == 'Titular' ? Colors.blueAccent : Colors.orangeAccent,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 11,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          "Original: S/.${originalTotal.toStringAsFixed(2)}",
+                                          style: const TextStyle(color: Colors.grey, fontSize: 11),
+                                        ),
+                                        const SizedBox(width: 12),
+                                        Text(
+                                          "Entregado: S/.${finalTotal.toStringAsFixed(2)}",
+                                          style: const TextStyle(color: Colors.greenAccent, fontSize: 12, fontWeight: FontWeight.bold),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => DetallePedidoPage(
+                                      pedido: pedido,
+                                      userRol: _userRol!,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
           );
         },
       ),

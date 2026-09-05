@@ -166,6 +166,18 @@ class DetallePedidoPage extends StatelessWidget {
     final String telefono = pedido['telefono_cliente'] ?? 'No especificado';
     final String? segundo = pedido['segundo_recoge'];
 
+    final perfiles = pedido['perfiles'];
+    String vendedor = "Sistema / Sin Asignar";
+    if (perfiles is Map) {
+      final n = perfiles['nombre']?.toString().trim();
+      final e = perfiles['email']?.toString().trim();
+      if (n != null && n.isNotEmpty) {
+        vendedor = n;
+      } else if (e != null && e.isNotEmpty) {
+        vendedor = e;
+      }
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
@@ -178,6 +190,8 @@ class DetallePedidoPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildInfoRow(Icons.person_outline, "Titular", nombre),
+          const SizedBox(height: 10),
+          _buildInfoRow(Icons.badge_outlined, "Vendedor / Registrado por", vendedor, color: Colors.blueAccent),
           const SizedBox(height: 10),
           _buildInfoRow(Icons.location_on_outlined, "Dirección", direccion),
           const SizedBox(height: 10),

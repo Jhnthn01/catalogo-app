@@ -5,6 +5,7 @@ import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:catalogo_digital_app/widgets/selector_tienda.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
 import 'package:catalogo_digital_app/widgets/menu_lateral.dart';
+import 'package:catalogo_digital_app/features/inventory/kardex_screen.dart';
 
 enum DetalleProductoOrigen { catalogo, inventario }
 
@@ -174,7 +175,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     final bool mostrarCosto =
         esModoInventario ? puedeGestionFicha : esPersonal;
     final String tooltipAtras =
-        _esPantallaInventario ? 'Volver al inventario' : 'Volver al catálogo';
+        _esPantallaInventario ? 'Volver al inventario' : 'Volver a Ventas';
     final String tituloAppBar =
         esModoInventario ? 'Gestión de producto' : 'Detalle';
 
@@ -191,6 +192,22 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         actions: [
+          IconButton(
+            tooltip: 'Ver Kardex / Movimientos',
+            icon: const Icon(Icons.history_toggle_off, color: Colors.tealAccent),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => KardexScreen(
+                    initialProductoId: widget.producto['id']?.toString(),
+                    initialProductoNombre: widget.producto['descripcion_1']?.toString(),
+                    initialSku: widget.producto['sku']?.toString(),
+                  ),
+                ),
+              );
+            },
+          ),
           if (mostrarSwitchEdicion)
             Row(
               children: [
@@ -310,6 +327,38 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
               enabled: _modoEdicion && puedeGestionFicha,
               onChanged: (v) => _calcularTotal(),
             ),
+            const SizedBox(height: 15),
+            if (esPersonal) ...[
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.tealAccent,
+                    side: const BorderSide(color: Colors.tealAccent),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => KardexScreen(
+                          initialProductoId: widget.producto['id']?.toString(),
+                          initialProductoNombre: widget.producto['descripcion_1']?.toString(),
+                          initialSku: widget.producto['sku']?.toString(),
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.history_toggle_off, size: 20),
+                  label: const Text(
+                    'Ver Kardex de este Producto',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 15),
+            ],
             if (mostrarBloquePedidos) ...[
               const Divider(height: 40, color: Colors.white10),
               const Text(

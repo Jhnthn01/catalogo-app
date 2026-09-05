@@ -30,6 +30,13 @@ class _TablaDetalladaInventarioScreenState
   bool _hasMore = true;
   String _searchQuery = '';
   int _totalProductosCount = 0;
+
+  // KPIs globales: se calculan solo en carga inicial / refresh sin filtro.
+  // NO se recalculan cuando el usuario busca, para que no cambien con el filtro.
+  int _kpiStockGlobal = 0;
+  double _kpiValorInventario = 0.0;
+
+  final TextEditingController _searchController = TextEditingController();
   Timer? _debounceTimer;
 
   String? _catFiltro;
@@ -43,13 +50,67 @@ class _TablaDetalladaInventarioScreenState
   @override
   void initState() {
     super.initState();
+    _cargarKpisGlobales(); // KPIs independientes del filtro
     _cargarProductos();
   }
 
   @override
   void dispose() {
     _debounceTimer?.cancel();
+    _searchController.dispose();
     super.dispose();
+  }
+
+  /// Carga los KPIs globales (stock total + valor inventario) directamente
+  /// desde la tabla [inventario], SIN ningún filtro de búsqueda ni jerarquía.
+  /// Se ejecuta solo una vez al iniciar y al presionar Recargar.
+  Future<void> _cargarKpisGlobales() async {
+    if (!mounted) return;
+    try {
+      final tiendaId = TiendaService().tiendaActivaId.value;
+      final rol = TiendaService().usuarioRol?.toLowerCase() ?? 'cliente';
+      final bool esAdmin = rol == 'admin' || rol == 'administrador' || rol == 'gerente';
+
+      // Consulta a inventario con join a productos para obtener costo_medio
+      var invQuery = Supabase.instance.client
+          .from('inventario')
+          .select('stock, productos(costo_medio)');
+
+      if (tiendaId != null) {
+        invQuery = invQuery.eq('tienda_id', tiendaId);
+      } else if (!esAdmin) {
+        // Sin tienda y sin permisos: no mostrar nada
+        return;
+      }
+
+      final List<dynamic> invData = await invQuery;
+
+      if (!mounted) return;
+
+      int stockTotal = 0;
+      double valorTotal = 0.0;
+      for (final row in invData) {
+        final stock = (row['stock'] as num?)?.toInt() ?? 0;
+        final costoMedio = double.tryParse(
+              row['productos']?['costo_medio']?.toString() ?? '',
+            ) ??
+            double.tryParse(
+              row['productos']?['costo']?.toString() ?? '',
+            ) ??
+            0.0;
+        stockTotal += stock;
+        valorTotal += stock * costoMedio;
+      }
+
+      if (mounted) {
+        setState(() {
+          _kpiStockGlobal = stockTotal;
+          _kpiValorInventario = valorTotal;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error cargando KPIs globales: $e');
+    }
   }
 
   Future<void> _cargarProductos() async {
@@ -88,39 +149,66 @@ class _TablaDetalladaInventarioScreenState
       }
 
       final q = _searchQuery.trim();
-      if (q.isNotEmpty) {
-        final List<String> tokens = q.split(RegExp(r'\s+')).where((t) => t.isNotEmpty).toList();
-        if (tokens.isNotEmpty) {
-          final List<String> orClauses = [];
-          for (final token in tokens) {
-            orClauses.add('descripcion_1.ilike.%$token%');
-            orClauses.add('sku.ilike.%$token%');
-            orClauses.add('marca.ilike.%$token%');
-            orClauses.add('upc.ilike.%$token%');
-            orClauses.add('alu.ilike.%$token%');
-          }
-          query = query.or(orClauses.join(','));
+      final List<String> tokens = q.isEmpty
+          ? []
+          : (q.contains('%')
+              ? q.split('%').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
+              : [q]);
+
+      List<Map<String, dynamic>> lista = [];
+
+      if (tokens.isNotEmpty) {
+        final params = <String, dynamic>{
+          'p_tokens': tokens,
+          'p_tienda_id': tiendaId,
+          'p_categoria': _catFiltro,
+          'p_clase': _claseFiltro,
+          'p_sub_clase': _subClaseFiltro,
+          'p_limit': 500,
+          'p_offset': 0,
+        };
+
+        final List<dynamic> data = await Supabase.instance.client.rpc(
+          'buscar_productos',
+          params: params,
+        );
+
+        lista = List<Map<String, dynamic>>.from(data);
+      } else {
+        final String invJoin = (tiendaId != null || !esAdmin)
+            ? 'inventario!inner(stock, tienda_id)'
+            : 'inventario(stock, tienda_id)';
+
+        var query = Supabase.instance.client
+            .from('productos')
+            .select(
+              'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio, $invJoin',
+            );
+
+        if (tiendaId != null) {
+          query = query.eq('inventario.tienda_id', tiendaId);
+        } else if (!esAdmin) {
+          query = query.eq('inventario.tienda_id', -1);
         }
+
+        if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
+        if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
+        if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
+
+        const limit = 99;
+        final List<dynamic> data = await query
+            .order('descripcion_1')
+            .range(0, limit);
+
+        lista = List<Map<String, dynamic>>.from(data);
       }
-
-      if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
-      if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
-      if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
-
-      // Si no hay filtro, carga inicial instantánea (primeros 100).
-      // Si el usuario busca, la consulta busca en TODOS los 7.4k+ items de Supabase (máx 500 resultados).
-      final limit = q.isNotEmpty ? 499 : 99;
-      final List<dynamic> data = await query
-          .order('descripcion_1')
-          .range(0, limit);
 
       if (!mounted) return;
 
-      final lista = List<Map<String, dynamic>>.from(data);
       setState(() {
         _todosLosProductos.clear();
         _todosLosProductos.addAll(lista);
-        _hasMore = data.length >= limit && q.isEmpty;
+        _hasMore = tokens.isEmpty && lista.length >= 99;
         _aplicarFiltros();
         _isLoading = false;
       });
@@ -197,7 +285,11 @@ class _TablaDetalladaInventarioScreenState
   }
 
   void _aplicarFiltros() {
-    final query = _searchQuery.trim().toLowerCase();
+    final rawQuery = _searchQuery.trim();
+
+    final List<String> tokens = rawQuery.contains('%')
+        ? rawQuery.split('%').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
+        : (rawQuery.isNotEmpty ? [rawQuery] : []);
 
     _productosFiltrados = _todosLosProductos.where((p) {
       // Filtro de jerarquía
@@ -205,25 +297,61 @@ class _TablaDetalladaInventarioScreenState
       if (_claseFiltro != null && p['clase'] != _claseFiltro) return false;
       if (_subClaseFiltro != null && p['sub_clase'] != _subClaseFiltro) return false;
 
-      // Buscador por SKU, Nombre (descripcion_1) o Marca
-      if (query.isNotEmpty) {
+      // Buscador multi-token
+      if (tokens.isNotEmpty) {
         final sku = (p['sku'] ?? '').toString().toLowerCase();
         final nombre = (p['descripcion_1'] ?? '').toString().toLowerCase();
         final marca = (p['marca'] ?? '').toString().toLowerCase();
         final upc = (p['upc'] ?? '').toString().toLowerCase();
         final alu = (p['alu'] ?? '').toString().toLowerCase();
 
-        return sku.contains(query) ||
-            nombre.contains(query) ||
-            marca.contains(query) ||
-            upc.contains(query) ||
-            alu.contains(query);
+        return tokens.any((t) {
+          final token = t.toLowerCase();
+          return sku.contains(token) ||
+              nombre.contains(token) ||
+              marca.contains(token) ||
+              upc.contains(token) ||
+              alu.contains(token);
+        });
       }
 
       return true;
     }).toList();
 
-    _ordenarLista();
+    if (tokens.length > 1 && _sortColumnIndex == 1) {
+      int primerMatchIndex(Map<String, dynamic> p) {
+        final sku = (p['sku'] ?? '').toString().toLowerCase();
+        final nombre = (p['descripcion_1'] ?? '').toString().toLowerCase();
+        final marca = (p['marca'] ?? '').toString().toLowerCase();
+        final upc = (p['upc'] ?? '').toString().toLowerCase();
+        final alu = (p['alu'] ?? '').toString().toLowerCase();
+
+        for (int i = 0; i < tokens.length; i++) {
+          final token = tokens[i].toLowerCase();
+          if (sku.contains(token) ||
+              nombre.contains(token) ||
+              marca.contains(token) ||
+              upc.contains(token) ||
+              alu.contains(token)) {
+            return i;
+          }
+        }
+        return 999;
+      }
+
+      _productosFiltrados.sort((a, b) {
+        final idxA = primerMatchIndex(a);
+        final idxB = primerMatchIndex(b);
+        if (idxA != idxB) {
+          return idxA.compareTo(idxB);
+        }
+        final nomA = (a['descripcion_1'] ?? '').toString().toLowerCase();
+        final nomB = (b['descripcion_1'] ?? '').toString().toLowerCase();
+        return _sortAscending ? nomA.compareTo(nomB) : nomB.compareTo(nomA);
+      });
+    } else {
+      _ordenarLista();
+    }
   }
 
   void _ordenarLista() {
@@ -338,23 +466,10 @@ class _TablaDetalladaInventarioScreenState
   int get _totalProductosRegistrados =>
       _totalProductosCount > 0 ? _totalProductosCount : _todosLosProductos.length;
 
-  double get _valorTotalInventario {
-    double total = 0.0;
-    for (final prod in _todosLosProductos) {
-      final stock = _calcularStockTotal(prod);
-      final costoMedio = _obtenerCostoMedio(prod);
-      total += (stock * costoMedio);
-    }
-    return total;
-  }
+  // Usar siempre los valores cacheados (no afectados por búsqueda)
+  double get _valorTotalInventario => _kpiValorInventario;
 
-  int get _stockTotalGlobal {
-    int total = 0;
-    for (final prod in _todosLosProductos) {
-      total += _calcularStockTotal(prod);
-    }
-    return total;
-  }
+  int get _stockTotalGlobal => _kpiStockGlobal;
 
   void _abrirFichaProducto(Map<String, dynamic> producto) {
     Navigator.of(context).push(
@@ -382,6 +497,7 @@ class _TablaDetalladaInventarioScreenState
 
           // ── Barra de Búsqueda y Filtros ──────────────────────────────────
           _buildBarraBusquedaYAcciones(),
+          _buildChipsBusqueda(),
 
           // ── Filtros de Jerarquía ─────────────────────────────────────────
           FiltrosJerarquiaWidget(
@@ -538,6 +654,7 @@ class _TablaDetalladaInventarioScreenState
                 border: Border.all(color: Colors.white12),
               ),
               child: TextField(
+                controller: _searchController,
                 onChanged: (val) {
                   _debounceTimer?.cancel();
                   _debounceTimer = Timer(const Duration(milliseconds: 300), () {
@@ -571,7 +688,10 @@ class _TablaDetalladaInventarioScreenState
               ),
             ),
             icon: const Icon(Icons.refresh, color: Colors.blueAccent, size: 20),
-            onPressed: _cargarProductos,
+            onPressed: () {
+              _cargarKpisGlobales();
+              _cargarProductos();
+            },
           ),
           const SizedBox(width: 12),
           OutlinedButton.icon(
@@ -622,6 +742,121 @@ class _TablaDetalladaInventarioScreenState
               'Nuevo Producto',
               style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChipsBusqueda() {
+    final q = _searchQuery.trim();
+    final List<String> tokens = q.contains('%')
+        ? q.split('%').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
+        : (q.isNotEmpty ? [q] : []);
+
+    if (tokens.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Prioridad de búsqueda:',
+                style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+              if (tokens.length > 1) ...[
+                const SizedBox(width: 6),
+                const Text(
+                  '(Toca una etiqueta para moverla al 1er lugar)',
+                  style: TextStyle(color: Colors.blueAccent, fontSize: 10, fontStyle: FontStyle.italic),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: List.generate(tokens.length, (index) {
+              final token = tokens[index];
+              final bool esPrincipal = index == 0 && tokens.length > 1;
+
+              return InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: () {
+                  if (index == 0) return;
+                  final newTokens = [token, ...tokens.where((t) => t != token)];
+                  final newQuery = newTokens.join('%');
+                  setState(() {
+                    _searchQuery = newQuery;
+                    _searchController.text = newQuery;
+                  });
+                  _cargarProductos();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: esPrincipal
+                        ? Colors.amber.withValues(alpha: 0.2)
+                        : Colors.blueAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: esPrincipal ? Colors.amberAccent : Colors.blueAccent.withValues(alpha: 0.4),
+                      width: esPrincipal ? 1.5 : 1.0,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        esPrincipal ? Icons.star_rounded : Icons.search_rounded,
+                        color: esPrincipal ? Colors.amberAccent : Colors.blueAccent,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        token,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: esPrincipal ? FontWeight.bold : FontWeight.w500,
+                        ),
+                      ),
+                      if (esPrincipal) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.amberAccent.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            'Prioridad 1',
+                            style: TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(width: 6),
+                      InkWell(
+                        onTap: () {
+                          final newTokens = List<String>.from(tokens)..remove(token);
+                          final newQuery = newTokens.join('%');
+                          setState(() {
+                            _searchQuery = newQuery;
+                            _searchController.text = newQuery;
+                          });
+                          _cargarProductos();
+                        },
+                        child: const Icon(Icons.close, color: Colors.white70, size: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
           ),
         ],
       ),

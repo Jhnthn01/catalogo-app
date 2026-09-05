@@ -7,6 +7,8 @@ import 'package:catalogo_digital_app/features/orders/pedidos_entregados_page.dar
 import 'package:catalogo_digital_app/features/orders/order_pdf_helper.dart';
 import 'package:catalogo_digital_app/services/cart_service.dart';
 import 'package:catalogo_digital_app/services/tienda_service.dart';
+import 'package:catalogo_digital_app/data/models/kardex_model.dart';
+import 'package:catalogo_digital_app/services/kardex_service.dart';
 import 'package:printing/printing.dart';
 
 class MisPedidosPage extends StatefulWidget {
@@ -96,6 +98,7 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
           .from('pedidos')
           .select('''
           id,
+          usuario_id,
           total,
           total_despachado,
           estado,
@@ -139,13 +142,42 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
       }
 
       final response = await query.order('creado_en', ascending: false);
+      final pedidos = List<Map<String, dynamic>>.from(response);
 
-      return List<Map<String, dynamic>>.from(response);
+      // Obtener perfiles por usuario_id de forma independiente
+      final usuarioIds = pedidos
+          .map((p) => p['usuario_id'])
+          .where((id) => id != null)
+          .toSet()
+          .toList();
+
+      Map<String, Map<String, dynamic>> perfilesMap = {};
+      if (usuarioIds.isNotEmpty) {
+        final perfilesResponse = await _supabase
+            .from('perfiles')
+            .select('id, nombre, email')
+            .inFilter('id', usuarioIds);
+        for (final p in perfilesResponse) {
+          perfilesMap[p['id'].toString()] = p;
+        }
+      }
+
+      // Inyectar perfiles en cada pedido
+      return pedidos.map((p) {
+        final uid = p['usuario_id']?.toString();
+        return {
+          ...p,
+          'perfiles': uid != null ? perfilesMap[uid] : null,
+        };
+      }).toList();
     } catch (e) {
       debugPrint("Error en Pedidos: $e");
       return [];
     }
   }
+
+  String _filterId = '';
+  String _filterVendedor = '';
 
   @override
   Widget build(BuildContext context) {
@@ -178,18 +210,126 @@ class _MisPedidosPageState extends State<MisPedidosPage> {
             );
           }
 
-          final pedidos = snapshot.data!;
+          final todos = snapshot.data!;
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(15),
-            itemCount: pedidos.length,
-            itemBuilder: (context, index) {
-              return PedidoCardItem(
-                pedido: pedidos[index],
-                userRol: _userRol!,
-                onRefresh: () => _cargarPedidosStream(),
-              );
-            },
+          // Extraer vendedores únicos para el dropdown
+          final Set<String> vendedoresSet = {};
+          for (var p in todos) {
+            final perfiles = p['perfiles'];
+            if (perfiles is Map) {
+              final n = perfiles['nombre']?.toString().trim();
+              final e = perfiles['email']?.toString().trim();
+              if (n != null && n.isNotEmpty) {
+                vendedoresSet.add(n);
+              } else if (e != null && e.isNotEmpty) {
+                vendedoresSet.add(e);
+              }
+            }
+          }
+          final List<String> vendedoresList = vendedoresSet.toList()..sort();
+
+          // Filtrar pedidos
+          final pedidos = todos.where((p) {
+            if (_filterId.trim().isNotEmpty) {
+              final idStr = (p['id'] ?? '').toString().toLowerCase();
+              final numCliente = (p['nombre_cliente'] ?? '').toString().toLowerCase();
+              final term = _filterId.trim().toLowerCase();
+              if (!idStr.contains(term) && !numCliente.contains(term)) return false;
+            }
+            if (_filterVendedor.trim().isNotEmpty) {
+              final perfiles = p['perfiles'];
+              String vend = "Sistema / Sin Asignar";
+              if (perfiles is Map) {
+                final n = perfiles['nombre']?.toString().trim();
+                final e = perfiles['email']?.toString().trim();
+                if (n != null && n.isNotEmpty) vend = n;
+                else if (e != null && e.isNotEmpty) vend = e;
+              }
+              if (vend != _filterVendedor) return false;
+            }
+            return true;
+          }).toList();
+
+          return Column(
+            children: [
+              // Barra de Filtros
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 15, vertical: 10),
+                color: const Color(0xFF1E1E1E),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: TextField(
+                        onChanged: (val) => setState(() => _filterId = val),
+                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: "Nº Pedido / Cliente...",
+                          hintStyle: const TextStyle(color: Colors.grey, fontSize: 12),
+                          prefixIcon: const Icon(Icons.search, color: Colors.blueAccent, size: 18),
+                          isDense: true,
+                          contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 10),
+                          filled: true,
+                          fillColor: const Color(0xFF2A2A2A),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide.none),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      flex: 3,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2A2A2A),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _filterVendedor.isEmpty ? null : _filterVendedor,
+                            hint: const Text("Vendedor", style: TextStyle(color: Colors.grey, fontSize: 12)),
+                            isExpanded: true,
+                            dropdownColor: const Color(0xFF2A2A2A),
+                            icon: const Icon(Icons.arrow_drop_down, color: Colors.blueAccent),
+                            items: [
+                              const DropdownMenuItem<String>(
+                                value: "",
+                                child: Text("Todos vendedores", style: TextStyle(color: Colors.white70, fontSize: 12)),
+                              ),
+                              ...vendedoresList.map((v) => DropdownMenuItem<String>(
+                                    value: v,
+                                    child: Text(v, style: const TextStyle(color: Colors.white, fontSize: 12), overflow: TextOverflow.ellipsis),
+                                  )),
+                            ],
+                            onChanged: (val) => setState(() => _filterVendedor = val ?? ""),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: pedidos.isEmpty
+                    ? const Center(
+                        child: Text(
+                          "No hay pedidos que coincidan con el filtro",
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.all(15),
+                        itemCount: pedidos.length,
+                        itemBuilder: (context, index) {
+                          return PedidoCardItem(
+                            pedido: pedidos[index],
+                            userRol: _userRol!,
+                            onRefresh: () => _cargarPedidosStream(),
+                          );
+                        },
+                      ),
+              ),
+            ],
           );
         },
       ),
@@ -478,7 +618,10 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
           // Deduct stock from inventario
           final prodId = d['producto_id'] ?? d['productos']?['id'];
           if (prodId != null) {
-            final tiendaId = TiendaService().tiendaSeleccionadaId.value;
+            final tiendaId = widget.pedido['tienda_id'] != null
+                ? int.tryParse(widget.pedido['tienda_id'].toString())
+                : TiendaService().tiendaSeleccionadaId.value;
+
             var invQuery = Supabase.instance.client
                 .from('inventario')
                 .select('id, stock')
@@ -489,15 +632,36 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
             }
             
             final invList = await invQuery;
+            double? stockAnterior;
+            double? stockResultante;
+
             if (invList.isNotEmpty) {
               final invRecord = invList.first;
               final int currentStock = int.tryParse(invRecord['stock'].toString()) ?? 0;
               final int newStock = currentStock - qty;
+              stockAnterior = currentStock.toDouble();
+              stockResultante = newStock.toDouble();
+
               await Supabase.instance.client
                   .from('inventario')
                   .update({'stock': newStock})
                   .eq('id', invRecord['id']);
             }
+
+            // Registrar evento SALIDA / PEDIDO en Kardex
+            await KardexService().registrarMovimiento(
+              KardexMovimiento(
+                productoId: prodId.toString(),
+                tiendaId: tiendaId,
+                tipoMovimiento: 'SALIDA',
+                origenTipo: 'PEDIDO',
+                origenId: widget.pedido['id']?.toString(),
+                cantidad: qty.toDouble(),
+                costoUnitario: double.tryParse(d['precio_unitario']?.toString() ?? '0'),
+                stockAnterior: stockAnterior,
+                stockResultante: stockResultante,
+              ),
+            );
           }
         } else {
           await Supabase.instance.client
@@ -723,8 +887,12 @@ class _PedidoCardItemState extends State<PedidoCardItem> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text("Creado: ${DateFormat('dd/MM/yyyy hh:mm a').format(fechaCreacion)}", style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            Text(
+              "Vendedor: ${widget.pedido['perfiles'] != null && (widget.pedido['perfiles']['nombre']?.toString().trim().isNotEmpty ?? false) ? widget.pedido['perfiles']['nombre'] : (widget.pedido['perfiles']?['email'] ?? 'Sistema / Sin Asignar')}",
+              style: const TextStyle(color: Colors.blueAccent, fontSize: 12, fontWeight: FontWeight.w500),
+            ),
             if (fechaEntrega != null)
-              Text("Entrega: ${DateFormat('dd/MM/yyyy hh:mm a').format(fechaEntrega)}", style: const TextStyle(color: Colors.blueAccent, fontSize: 12)),
+              Text("Entrega: ${DateFormat('dd/MM/yyyy hh:mm a').format(fechaEntrega)}", style: const TextStyle(color: Colors.lightBlueAccent, fontSize: 12)),
             const SizedBox(height: 4),
             if (estado == 'pendiente') ...[
               if (widget.userRol == 'despachador' || widget.userRol == 'admin') ...[

@@ -3,6 +3,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:csv/csv.dart';
 import 'package:universal_html/html.dart' as html;
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'dart:io' as io;
@@ -15,6 +16,7 @@ import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
 import 'package:catalogo_digital_app/features/catalog/detalle_producto_page.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
 import 'package:catalogo_digital_app/features/inventory/tabla_detallada_inventario_screen.dart';
+import 'package:catalogo_digital_app/features/inventory/kardex_screen.dart';
 
 class InventarioPage extends StatefulWidget {
   const InventarioPage({super.key});
@@ -36,6 +38,8 @@ class _InventarioPageState extends State<InventarioPage> {
   int _paginaActual = 0;
   final int _tamanhoPagina = 25;
   int _fetchId = 0;
+
+  Timer? _debounce;
 
   String? _catFiltro;
   String? _claseFiltro;
@@ -70,6 +74,34 @@ class _InventarioPageState extends State<InventarioPage> {
     if (mounted) setState(() {});
   }
 
+  void _onSearchChanged(String val) {
+    _searchQuery = val;
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 400), () {
+      _reiniciarLista();
+      if (_isLoading) setState(() => _isLoading = false);
+      _cargarMasProductos();
+    });
+  }
+
+  /// Devuelve el índice del primer token de [tokens] que aparece
+  /// (como subcadena, case-insensitive) en cualquier campo del producto.
+  /// Si ninguno coincide retorna tokens.length (va al final del sort).
+  int _firstMatchIndex(Map<String, dynamic> product, List<String> tokens) {
+    final fields = [
+      (product['descripcion_1'] ?? '').toString().toLowerCase(),
+      (product['sku'] ?? '').toString().toLowerCase(),
+      (product['upc'] ?? '').toString().toLowerCase(),
+      (product['marca'] ?? '').toString().toLowerCase(),
+      (product['alu'] ?? '').toString().toLowerCase(),
+    ];
+    for (int i = 0; i < tokens.length; i++) {
+      final t = tokens[i].toLowerCase();
+      if (fields.any((f) => f.contains(t))) return i;
+    }
+    return tokens.length;
+  }
+
   Future<void> _cargarMasProductos() async {
     if (!mounted || _isLoading || !_hasMore) return;
 
@@ -77,63 +109,102 @@ class _InventarioPageState extends State<InventarioPage> {
     setState(() => _isLoading = true);
 
     try {
-      final desde = _paginaActual * _tamanhoPagina;
-      final hasta = desde + _tamanhoPagina - 1;
-
       final tiendaId = TiendaService().tiendaActivaId.value;
       final rol = TiendaService().usuarioRol?.toLowerCase() ?? 'cliente';
       final bool esAdmin = rol == 'admin' || rol == 'administrador' || rol == 'gerente';
 
-      // Admin/gerente sin tienda activa: trae inventario de TODAS las tiendas (sum global)
-      // Con tienda activa: filtra solo esa tienda
-      final String invJoin = (tiendaId != null || !esAdmin)
-          ? 'inventario!inner(stock, tienda_id)'
-          : 'inventario(stock, tienda_id)';
+      final q = _searchQuery.trim();
+      final List<String> tokens = q.isEmpty
+          ? []
+          : (q.contains('%')
+              ? q.split('%').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
+              : [q]);
 
-      var query = Supabase.instance.client.from('productos').select(
-            'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio, $invJoin',
-          );
+      if (tokens.isNotEmpty) {
+        final params = <String, dynamic>{
+          'p_tokens': tokens,
+          'p_tienda_id': tiendaId,
+          'p_categoria': _catFiltro,
+          'p_clase': _claseFiltro,
+          'p_sub_clase': _subClaseFiltro,
+          'p_limit': 500,
+          'p_offset': 0,
+        };
 
-      // Filtrar stock por tienda activa
-      if (tiendaId != null) {
-        query = query.eq('inventario.tienda_id', tiendaId);
-      } else if (!esAdmin) {
-        // Usuario operativo sin tienda asignada: no mostrar nada
-        query = query.eq('inventario.tienda_id', -1);
-      }
-
-      if (_searchQuery.isNotEmpty) {
-        query = query.or(
-          'descripcion_1.ilike.%$_searchQuery%,sku.ilike.%$_searchQuery%,upc.ilike.%$_searchQuery%,alu.ilike.%$_searchQuery%',
+        final List<dynamic> data = await Supabase.instance.client.rpc(
+          'buscar_productos',
+          params: params,
         );
+
+        final list = List<Map<String, dynamic>>.from(data);
+
+        if (tokens.length > 1) {
+          list.sort((a, b) {
+            final idxA = _firstMatchIndex(a, tokens);
+            final idxB = _firstMatchIndex(b, tokens);
+            if (idxA != idxB) return idxA.compareTo(idxB);
+            final nomA = (a['descripcion_1'] ?? '').toString().toLowerCase();
+            final nomB = (b['descripcion_1'] ?? '').toString().toLowerCase();
+            return nomA.compareTo(nomB);
+          });
+        }
+
+        if (!mounted || currentFetchId != _fetchId) return;
+
+        setState(() {
+          _productos
+            ..clear()
+            ..addAll(list);
+          _isLoading = false;
+          _hasMore = false;
+        });
+      } else {
+        final String invJoin = (tiendaId != null || !esAdmin)
+            ? 'inventario!inner(stock, tienda_id)'
+            : 'inventario(stock, tienda_id)';
+
+        final String selectFields =
+            'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio, $invJoin';
+
+        var query = Supabase.instance.client.from('productos').select(selectFields);
+        if (tiendaId != null) {
+          query = query.eq('inventario.tienda_id', tiendaId);
+        } else if (!esAdmin) {
+          query = query.eq('inventario.tienda_id', -1);
+        }
+        if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
+        if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
+        if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
+
+        final int desde = _paginaActual * _tamanhoPagina;
+        final int hasta = desde + _tamanhoPagina - 1;
+        final List<dynamic> data =
+            await query.order('descripcion_1').range(desde, hasta);
+
+        if (!mounted || currentFetchId != _fetchId) return;
+
+        setState(() {
+          _productos.addAll(List<Map<String, dynamic>>.from(data));
+          _paginaActual++;
+          _isLoading = false;
+          if (data.length < _tamanhoPagina) _hasMore = false;
+        });
       }
-
-      if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
-      if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
-      if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
-
-      final List<dynamic> data = await query
-          .order('descripcion_1')
-          .range(desde, hasta);
-
-      if (!mounted || currentFetchId != _fetchId) return;
-
-      setState(() {
-        _productos.addAll(List<Map<String, dynamic>>.from(data));
-        _paginaActual++;
-        _isLoading = false;
-        if (data.length < _tamanhoPagina) _hasMore = false;
-      });
     } catch (e) {
       if (mounted && currentFetchId == _fetchId) {
         setState(() => _isLoading = false);
-        debugPrint("Error: $e");
+        debugPrint("Error _cargarMasProductos: $e");
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error al buscar: $e'), backgroundColor: Colors.redAccent),
+        );
       }
     }
   }
 
+
   @override
   void dispose() {
+    _debounce?.cancel();
     _scrollController.removeListener(_scrollListener);
     _scrollController.dispose();
     _searchController.dispose();
@@ -248,7 +319,7 @@ class _InventarioPageState extends State<InventarioPage> {
         ]);
       }
       
-      String csvData = csv.encode(rows);
+      String csvData = Csv().encode(rows);
       if (kIsWeb) {
         final bytes = utf8.encode(csvData);
         final blob = html.Blob([bytes]);
@@ -311,6 +382,16 @@ class _InventarioPageState extends State<InventarioPage> {
           backgroundColor: const Color(0xFF1E1E1E),
           actions: [
             IconButton(
+              icon: const Icon(Icons.history_toggle_off, color: Colors.tealAccent),
+              tooltip: 'Ver Kardex / Movimientos',
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const KardexScreen()),
+                );
+              },
+            ),
+            IconButton(
               icon: const Icon(Icons.upload_file, color: Colors.blueAccent),
               tooltip: 'Importar CSV (Carga Masiva)',
               onPressed: () {
@@ -346,6 +427,16 @@ class _InventarioPageState extends State<InventarioPage> {
         title: const Text("Inventario"),
         backgroundColor: Colors.transparent,
         actions: [
+          IconButton(
+            icon: const Icon(Icons.history_toggle_off, color: Colors.tealAccent),
+            tooltip: 'Ver Kardex / Movimientos',
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const KardexScreen()),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.upload_file, color: Colors.blueAccent),
             tooltip: 'Importar CSV (Carga Masiva)',
@@ -385,6 +476,7 @@ class _InventarioPageState extends State<InventarioPage> {
             duration: const Duration(milliseconds: 300),
             child: _isScanning ? _buildScanner() : _buildSearchBar(),
           ),
+          _buildChipsBusqueda(),
           FiltrosJerarquiaWidget(
             onFiltrosCambiados: (cat, clase, sub) {
               _catFiltro = cat;
@@ -515,15 +607,7 @@ class _InventarioPageState extends State<InventarioPage> {
         ),
         child: TextField(
           controller: _searchController,
-          onChanged: (val) {
-            _searchQuery = val;
-            _reiniciarLista();
-            // Evitamos la barrera de _isLoading artificialmente si es un refresh nuevo:
-            if (_isLoading) {
-              setState(() => _isLoading = false);
-            }
-            _cargarMasProductos();
-          },
+          onChanged: _onSearchChanged,
           style: const TextStyle(color: Colors.white),
           decoration: InputDecoration(
             hintText: 'Buscar producto...',
@@ -537,6 +621,125 @@ class _InventarioPageState extends State<InventarioPage> {
             contentPadding: const EdgeInsets.symmetric(vertical: 15),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildChipsBusqueda() {
+    final q = _searchQuery.trim();
+    final List<String> tokens = q.contains('%')
+        ? q.split('%').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
+        : (q.isNotEmpty ? [q] : []);
+
+    if (tokens.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Prioridad de búsqueda:',
+                style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold),
+              ),
+              if (tokens.length > 1) ...[
+                const SizedBox(width: 6),
+                const Text(
+                  '(Toca una etiqueta para moverla al 1er lugar)',
+                  style: TextStyle(color: Colors.blueAccent, fontSize: 10, fontStyle: FontStyle.italic),
+                ),
+              ],
+            ],
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: List.generate(tokens.length, (index) {
+              final token = tokens[index];
+              final bool esPrincipal = index == 0 && tokens.length > 1;
+
+              return InkWell(
+                borderRadius: BorderRadius.circular(20),
+                onTap: () {
+                  if (index == 0) return;
+                  final newTokens = [token, ...tokens.where((t) => t != token)];
+                  final newQuery = newTokens.join('%');
+                  setState(() {
+                    _searchQuery = newQuery;
+                    _searchController.text = newQuery;
+                  });
+                  _reiniciarLista();
+                  if (_isLoading) setState(() => _isLoading = false);
+                  _cargarMasProductos();
+                },
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: esPrincipal
+                        ? Colors.amber.withValues(alpha: 0.2)
+                        : Colors.blueAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: esPrincipal ? Colors.amberAccent : Colors.blueAccent.withValues(alpha: 0.4),
+                      width: esPrincipal ? 1.5 : 1.0,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        esPrincipal ? Icons.star_rounded : Icons.search_rounded,
+                        color: esPrincipal ? Colors.amberAccent : Colors.blueAccent,
+                        size: 14,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        token,
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: esPrincipal ? FontWeight.bold : FontWeight.w500,
+                        ),
+                      ),
+                      if (esPrincipal) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: Colors.amberAccent.withValues(alpha: 0.3),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: const Text(
+                            'Prioridad 1',
+                            style: TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(width: 6),
+                      InkWell(
+                        onTap: () {
+                          final newTokens = List<String>.from(tokens)..remove(token);
+                          final newQuery = newTokens.join('%');
+                          setState(() {
+                            _searchQuery = newQuery;
+                            _searchController.text = newQuery;
+                          });
+                          _reiniciarLista();
+                          if (_isLoading) setState(() => _isLoading = false);
+                          _cargarMasProductos();
+                        },
+                        child: const Icon(Icons.close, color: Colors.white70, size: 14),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }),
+          ),
+        ],
       ),
     );
   }
@@ -595,6 +798,10 @@ class _InventarioPageState extends State<InventarioPage> {
   }
 
   int _stockTotalDesdeProducto(Map<String, dynamic> prod) {
+    if (prod.containsKey('stock') && prod['stock'] != null) {
+      final s = prod['stock'];
+      if (s is num) return s.round();
+    }
     final inv = prod['inventario'];
     if (inv == null) return 0;
     if (inv is List) {
