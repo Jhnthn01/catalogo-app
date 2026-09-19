@@ -15,7 +15,7 @@ class KardexService {
     try {
       var query = _supabase
           .from('kardex_movimientos')
-          .select('*, productos(sku, descripcion_1), tiendas(nombre)')
+          .select('*, lote, unidad_medida, productos(sku, descripcion_1), tiendas(nombre)')
           .eq('producto_id', productoId);
 
       if (tiendaId != null) {
@@ -51,34 +51,18 @@ class KardexService {
     try {
       final res = await _supabase
           .from('perfiles')
-          .select('id, nombre')
+          .select('id, nombre, email')
           .inFilter('id', ids);
       final Map<String, String> nombresMap = {
         for (final p in res as List)
-          p['id'].toString(): (p['nombre'] ?? '').toString()
+          p['id'].toString(): (p['nombre'] != null && p['nombre'].toString().trim().isNotEmpty)
+              ? p['nombre'].toString().trim()
+              : (p['email'] ?? '').toString().trim()
       };
       for (int i = 0; i < movimientos.length; i++) {
         final uid = movimientos[i].usuarioId;
         if (uid != null && nombresMap.containsKey(uid)) {
-          movimientos[i] = KardexMovimiento(
-            id: movimientos[i].id,
-            productoId: movimientos[i].productoId,
-            tiendaId: movimientos[i].tiendaId,
-            tipoMovimiento: movimientos[i].tipoMovimiento,
-            origenTipo: movimientos[i].origenTipo,
-            origenId: movimientos[i].origenId,
-            cantidad: movimientos[i].cantidad,
-            costoUnitario: movimientos[i].costoUnitario,
-            stockAnterior: movimientos[i].stockAnterior,
-            stockResultante: movimientos[i].stockResultante,
-            costoMedioMomento: movimientos[i].costoMedioMomento,
-            usuarioId: uid,
-            createdAt: movimientos[i].createdAt,
-            productoSku: movimientos[i].productoSku,
-            productoDescripcion: movimientos[i].productoDescripcion,
-            tiendaNombre: movimientos[i].tiendaNombre,
-            usuarioNombre: nombresMap[uid],
-          );
+          movimientos[i] = movimientos[i].copyWith(usuarioNombre: nombresMap[uid]);
         }
       }
     } catch (e) {
@@ -166,7 +150,7 @@ class KardexService {
       final data = await _supabase
           .from('kardex_movimientos')
           .insert(movimientoFinal.toJson())
-          .select('*, productos(sku, descripcion_1), tiendas(nombre)')
+          .select('*, lote, unidad_medida, productos(sku, descripcion_1), tiendas(nombre)')
           .single();
 
       return KardexMovimiento.fromJson(Map<String, dynamic>.from(data));

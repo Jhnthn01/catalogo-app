@@ -6,13 +6,14 @@ class ProductoService {
 
   /// String con TODOS los campos de la tabla public.productos
   static const String selectFieldsComplete =
-      'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio';
+      'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, fecha_ultimo_costo, costo_medio';
 
   /// Obtiene lista de productos mapeados con datos completos
   Future<List<ProductoModel>> fetchProductos({
     int offset = 0,
     int limit = 100,
     String? searchQuery,
+    String modo = 'cualquiera',
     String? categoria,
     String? clase,
     String? subClase,
@@ -34,6 +35,7 @@ class ProductoService {
         'p_sub_clase': subClase,
         'p_limit': limit,
         'p_offset': offset,
+        'p_modo': modo,
       };
 
       final List<dynamic> data = await _supabase.rpc('buscar_productos', params: params);
@@ -75,12 +77,18 @@ class ProductoService {
 
   /// Inserta un nuevo producto asegurando todos los campos
   Future<Map<String, dynamic>> crearProducto(ProductoModel producto) async {
-    final res = await _supabase.from('productos').insert(producto.toJson()).select().single();
+    final payload = producto.toJson();
+    payload['modificado_por'] ??= _supabase.auth.currentUser?.id;
+    payload['modificado_at'] ??= DateTime.now().toUtc().toIso8601String();
+    final res = await _supabase.from('productos').insert(payload).select().single();
     return Map<String, dynamic>.from(res);
   }
 
   /// Actualiza un producto existente
   Future<void> actualizarProducto(dynamic id, Map<String, dynamic> datos) async {
-    await _supabase.from('productos').update(datos).eq('id', id);
+    final payload = Map<String, dynamic>.from(datos);
+    payload['modificado_por'] ??= _supabase.auth.currentUser?.id;
+    payload['modificado_at'] ??= DateTime.now().toUtc().toIso8601String();
+    await _supabase.from('productos').update(payload).eq('id', id);
   }
 }

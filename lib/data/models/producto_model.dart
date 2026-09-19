@@ -14,6 +14,7 @@ class ProductoModel {
   final double costo;
   final double precioVenta;
   final double ultimoCosto;
+  final DateTime? fechaUltimoCosto;
   final double costoMedio;
   final double? stock;
 
@@ -33,6 +34,7 @@ class ProductoModel {
     this.costo = 0.0,
     this.precioVenta = 0.0,
     this.ultimoCosto = 0.0,
+    this.fechaUltimoCosto,
     this.costoMedio = 0.0,
     this.stock,
   });
@@ -64,6 +66,11 @@ class ProductoModel {
       parsedStock = num.tryParse(json['stock'].toString())?.toDouble();
     }
 
+    DateTime? parsedFechaUltimoCosto;
+    if (json['fecha_ultimo_costo'] != null) {
+      parsedFechaUltimoCosto = DateTime.tryParse(json['fecha_ultimo_costo'].toString());
+    }
+
     return ProductoModel(
       id: json['id'],
       sku: json['sku']?.toString(),
@@ -80,6 +87,7 @@ class ProductoModel {
       costo: num.tryParse(json['costo']?.toString() ?? '0')?.toDouble() ?? 0.0,
       precioVenta: num.tryParse(json['precio_venta']?.toString() ?? '0')?.toDouble() ?? 0.0,
       ultimoCosto: num.tryParse(json['ultimo_costo']?.toString() ?? '0')?.toDouble() ?? 0.0,
+      fechaUltimoCosto: parsedFechaUltimoCosto,
       costoMedio: num.tryParse(json['costo_medio']?.toString() ?? '0')?.toDouble() ?? 0.0,
       stock: parsedStock,
     );
@@ -102,6 +110,7 @@ class ProductoModel {
       'costo': costo,
       'precio_venta': precioVenta,
       'ultimo_costo': ultimoCosto,
+      if (fechaUltimoCosto != null) 'fecha_ultimo_costo': fechaUltimoCosto!.toIso8601String(),
       'costo_medio': costoMedio,
     };
   }

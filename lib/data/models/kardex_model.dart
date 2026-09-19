@@ -13,6 +13,10 @@ class KardexMovimiento {
   final String? usuarioId;
   final DateTime? createdAt;
 
+  // Nuevos campos
+  final String? lote;
+  final String? unidadMedida;
+
   // Información extendida relacional
   final String? productoSku;
   final String? productoDescripcion;
@@ -33,11 +37,57 @@ class KardexMovimiento {
     this.costoMedioMomento,
     this.usuarioId,
     this.createdAt,
+    this.lote,
+    this.unidadMedida,
     this.productoSku,
     this.productoDescripcion,
     this.tiendaNombre,
     this.usuarioNombre,
   });
+
+  KardexMovimiento copyWith({
+    dynamic id,
+    dynamic productoId,
+    int? tiendaId,
+    String? tipoMovimiento,
+    String? origenTipo,
+    String? origenId,
+    double? cantidad,
+    double? costoUnitario,
+    double? stockAnterior,
+    double? stockResultante,
+    double? costoMedioMomento,
+    String? usuarioId,
+    DateTime? createdAt,
+    String? lote,
+    String? unidadMedida,
+    String? productoSku,
+    String? productoDescripcion,
+    String? tiendaNombre,
+    String? usuarioNombre,
+  }) {
+    return KardexMovimiento(
+      id: id ?? this.id,
+      productoId: productoId ?? this.productoId,
+      tiendaId: tiendaId ?? this.tiendaId,
+      tipoMovimiento: tipoMovimiento ?? this.tipoMovimiento,
+      origenTipo: origenTipo ?? this.origenTipo,
+      origenId: origenId ?? this.origenId,
+      cantidad: cantidad ?? this.cantidad,
+      costoUnitario: costoUnitario ?? this.costoUnitario,
+      stockAnterior: stockAnterior ?? this.stockAnterior,
+      stockResultante: stockResultante ?? this.stockResultante,
+      costoMedioMomento: costoMedioMomento ?? this.costoMedioMomento,
+      usuarioId: usuarioId ?? this.usuarioId,
+      createdAt: createdAt ?? this.createdAt,
+      lote: lote ?? this.lote,
+      unidadMedida: unidadMedida ?? this.unidadMedida,
+      productoSku: productoSku ?? this.productoSku,
+      productoDescripcion: productoDescripcion ?? this.productoDescripcion,
+      tiendaNombre: tiendaNombre ?? this.tiendaNombre,
+      usuarioNombre: usuarioNombre ?? this.usuarioNombre,
+    );
+  }
 
   // Getters para fácil acceso a datos extendidos
   String? get sku => productoSku;
@@ -46,6 +96,22 @@ class KardexMovimiento {
   String? get nombre => tiendaNombre;
   String? get nombreTienda => tiendaNombre;
   String? get nombreUsuario => usuarioNombre;
+
+  /// Mapea tipoMovimiento a abreviatura para columna TIP. DOC.
+  String get tipDocAbreviado {
+    switch (tipoMovimiento.toUpperCase()) {
+      case 'SALIDA':
+        return 'VTA';
+      case 'ENTRADA':
+        return 'COM';
+      case 'AJUSTE':
+        return 'AJU';
+      default:
+        return tipoMovimiento.length > 3
+            ? tipoMovimiento.substring(0, 3).toUpperCase()
+            : tipoMovimiento.toUpperCase();
+    }
+  }
 
   factory KardexMovimiento.fromJson(Map<String, dynamic> json) {
     final prodMap = json['productos'] is Map<String, dynamic>
@@ -84,6 +150,8 @@ class KardexMovimiento {
       createdAt: json['created_at'] != null
           ? DateTime.tryParse(json['created_at'].toString())
           : null,
+      lote: json['lote']?.toString(),
+      unidadMedida: json['unidad_medida']?.toString() ?? 'UND',
       productoSku: prodMap?['sku']?.toString(),
       productoDescripcion: prodMap?['descripcion_1']?.toString(),
       tiendaNombre: tiendaMap?['nombre']?.toString(),
@@ -106,6 +174,8 @@ class KardexMovimiento {
       if (costoMedioMomento != null) 'costo_medio_momento': costoMedioMomento,
       if (usuarioId != null) 'usuario_id': usuarioId,
       if (createdAt != null) 'created_at': createdAt!.toIso8601String(),
+      if (lote != null) 'lote': lote,
+      if (unidadMedida != null) 'unidad_medida': unidadMedida,
     };
   }
 }
