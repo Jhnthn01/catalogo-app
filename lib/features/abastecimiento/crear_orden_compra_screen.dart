@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:catalogo_digital_app/widgets/buscador_productos_widget.dart';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Modelo interno para un ítem del carrito
@@ -53,6 +54,7 @@ class _CrearOrdenCompraScreenState extends State<CrearOrdenCompraScreen> {
 
   // ── Buscador de productos ───────────────────────────────────────────────
   final TextEditingController _busquedaCtrl = TextEditingController();
+  String _modoBusqueda = 'cualquiera';
 
   // ── Carrito interno ─────────────────────────────────────────────────────
   final List<_ItemCarrito> _carrito = [];
@@ -300,17 +302,16 @@ class _CrearOrdenCompraScreenState extends State<CrearOrdenCompraScreen> {
       final marca = (p['marca'] as String? ?? '').toLowerCase();
       final alu = (p['alu'] as String? ?? '').toLowerCase();
 
-      return tokens.any((t) {
-        final token = t.toLowerCase();
-        return desc.contains(token) ||
-            sku.contains(token) ||
-            upc.contains(token) ||
-            marca.contains(token) ||
-            alu.contains(token);
-      });
+      final fullText = '$desc $sku $upc $marca $alu';
+
+      if (_modoBusqueda == 'todas') {
+        return tokens.every((t) => fullText.contains(t.toLowerCase()));
+      } else {
+        return tokens.any((t) => fullText.contains(t.toLowerCase()));
+      }
     }).toList();
 
-    if (tokens.length > 1) {
+    if (_modoBusqueda == 'cualquiera' && tokens.length > 1) {
       int primerMatchIndex(Map<String, dynamic> p) {
         final desc = (p['descripcion_1'] as String? ?? '').toLowerCase();
         final sku = (p['sku'] as String? ?? '').toLowerCase();
@@ -328,7 +329,7 @@ class _CrearOrdenCompraScreenState extends State<CrearOrdenCompraScreen> {
             return i;
           }
         }
-        return 999;
+        return tokens.length;
       }
 
       filtered.sort((a, b) {
@@ -524,7 +525,7 @@ class _CrearOrdenCompraScreenState extends State<CrearOrdenCompraScreen> {
             'tienda_id': _tiendaId,
             'usuario_id': userId,
             'estado': 'borrador',
-            'monto_total': _total,
+            'total': _total,
             'fecha_orden': DateTime.now().toUtc().toIso8601String(),
           })
           .select('id')
@@ -537,9 +538,8 @@ class _CrearOrdenCompraScreenState extends State<CrearOrdenCompraScreen> {
           .map((item) => {
                 'orden_compra_id': ordenId,
                 'producto_id': item.productoId,
-                'cantidad': item.cantidad,
+                'cantidad_solicitada': item.cantidad,
                 'costo_unitario': item.costoUnitario,
-                'subtotal': item.subtotal,
               })
           .toList();
 

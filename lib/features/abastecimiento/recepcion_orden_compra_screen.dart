@@ -89,7 +89,7 @@ class _RecepcionOrdenCompraScreenState
       // Detalles con JOIN a productos
       final detallesResp = await Supabase.instance.client
           .from('detalles_orden_compra')
-          .select('id, producto_id, cantidad, cantidad_recibida, costo_unitario, productos(descripcion_1, sku)')
+          .select('id, producto_id, cantidad_solicitada, cantidad_recibida, costo_unitario, productos(descripcion_1, sku)')
           .eq('orden_compra_id', widget.ordenId);
 
       if (!mounted) return;
@@ -115,7 +115,7 @@ class _RecepcionOrdenCompraScreenState
             descripcion: prod['descripcion_1'] as String? ?? 'Sin descripción',
             sku: prod['sku'] as String? ?? '—',
             cantidadSolicitada:
-                double.tryParse(d['cantidad'].toString()) ?? 0,
+                double.tryParse(d['cantidad_solicitada'].toString()) ?? 0,
             cantidadRecibidaAnterior:
                 double.tryParse(d['cantidad_recibida']?.toString() ?? '0') ??
                     0,
@@ -165,7 +165,10 @@ class _RecepcionOrdenCompraScreenState
         if (item.costoUnitario > 0) {
           await Supabase.instance.client
               .from('productos')
-              .update({'ultimo_costo': item.costoUnitario})
+              .update({
+                'ultimo_costo': item.costoUnitario,
+                'fecha_ultimo_costo': DateTime.now().toUtc().toIso8601String(),
+              })
               .eq('id', item.productoId);
         }
 

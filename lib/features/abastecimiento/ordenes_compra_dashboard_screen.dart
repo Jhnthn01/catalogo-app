@@ -208,7 +208,7 @@ class _OrdenesCompraDashboardScreenState
 
               // Monto
               String montoStr = '—';
-              final rawMonto = orden['monto_total'];
+              final rawMonto = orden['total'];
               if (rawMonto != null) {
                 try {
                   montoStr =
