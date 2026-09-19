@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:csv/csv.dart';
+import 'package:intl/intl.dart';
 import 'package:universal_html/html.dart' as html;
 import 'dart:async';
 import 'dart:convert';
@@ -15,6 +16,7 @@ import 'package:catalogo_digital_app/features/inventory/nuevo_producto_page.dart
 import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
 import 'package:catalogo_digital_app/features/catalog/detalle_producto_page.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
+import 'package:catalogo_digital_app/widgets/buscador_productos_widget.dart';
 import 'package:catalogo_digital_app/features/inventory/tabla_detallada_inventario_screen.dart';
 import 'package:catalogo_digital_app/features/inventory/kardex_screen.dart';
 
@@ -31,6 +33,7 @@ class _InventarioPageState extends State<InventarioPage> {
   final TextEditingController _searchController = TextEditingController();
 
   String _searchQuery = '';
+  String _modoBusqueda = 'cualquiera';
 
   bool _isScanning = false;
   bool _isLoading = false;
@@ -129,6 +132,7 @@ class _InventarioPageState extends State<InventarioPage> {
           'p_sub_clase': _subClaseFiltro,
           'p_limit': 500,
           'p_offset': 0,
+          'p_modo': _modoBusqueda,
         };
 
         final List<dynamic> data = await Supabase.instance.client.rpc(
@@ -138,7 +142,7 @@ class _InventarioPageState extends State<InventarioPage> {
 
         final list = List<Map<String, dynamic>>.from(data);
 
-        if (tokens.length > 1) {
+        if (_modoBusqueda == 'cualquiera' && tokens.length > 1) {
           list.sort((a, b) {
             final idxA = _firstMatchIndex(a, tokens);
             final idxB = _firstMatchIndex(b, tokens);
@@ -160,11 +164,11 @@ class _InventarioPageState extends State<InventarioPage> {
         });
       } else {
         final String invJoin = (tiendaId != null || !esAdmin)
-            ? 'inventario!inner(stock, tienda_id)'
-            : 'inventario(stock, tienda_id)';
+            ? 'inventario!inner(stock, tienda_id, actualizado_at, usuario_id)'
+            : 'inventario(stock, tienda_id, actualizado_at, usuario_id)';
 
         final String selectFields =
-            'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio, $invJoin';
+            'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, fecha_ultimo_costo, costo_medio, created_at, modificado_por, modificado_at, $invJoin';
 
         var query = Supabase.instance.client.from('productos').select(selectFields);
         if (tiendaId != null) {
@@ -183,12 +187,14 @@ class _InventarioPageState extends State<InventarioPage> {
 
         if (!mounted || currentFetchId != _fetchId) return;
 
+        final newItems = List<Map<String, dynamic>>.from(data);
         setState(() {
-          _productos.addAll(List<Map<String, dynamic>>.from(data));
+          _productos.addAll(newItems);
           _paginaActual++;
           _isLoading = false;
           if (data.length < _tamanhoPagina) _hasMore = false;
         });
+        _enriquecerModificados(newItems);
       }
     } catch (e) {
       if (mounted && currentFetchId == _fetchId) {
@@ -198,6 +204,129 @@ class _InventarioPageState extends State<InventarioPage> {
           SnackBar(content: Text('Error al buscar: $e'), backgroundColor: Colors.redAccent),
         );
       }
+    }
+  }
+
+  Future<void> _enriquecerModificados(List<Map<String, dynamic>> lista) async {
+    final ids = lista
+        .map((p) => p['id']?.toString())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (ids.isEmpty) return;
+
+    try {
+      final List<dynamic> res = await Supabase.instance.client
+          .from('kardex_movimientos')
+          .select('producto_id, usuario_id, created_at')
+          .inFilter('producto_id', ids)
+          .order('created_at', ascending: false);
+
+      final Map<String, Map<String, dynamic>> ultimosMovs = {};
+      for (final row in res) {
+        if (row is Map) {
+          final pid = row['producto_id']?.toString();
+          if (pid != null && !ultimosMovs.containsKey(pid)) {
+            ultimosMovs[pid] = Map<String, dynamic>.from(row);
+          }
+        }
+      }
+
+      final Set<String> userIds = {};
+      for (final m in ultimosMovs.values) {
+        final uid = m['usuario_id']?.toString();
+        if (uid != null && uid.isNotEmpty) userIds.add(uid);
+      }
+
+      for (final p in lista) {
+        final modPor = p['modificado_por']?.toString();
+        if (modPor != null && modPor.isNotEmpty) userIds.add(modPor);
+
+        final inv = p['inventario'];
+        if (inv is List) {
+          for (final row in inv) {
+            if (row is Map && row['usuario_id'] != null) {
+              final uid = row['usuario_id'].toString();
+              if (uid.isNotEmpty) userIds.add(uid);
+            }
+          }
+        } else if (inv is Map && inv['usuario_id'] != null) {
+          final uid = inv['usuario_id'].toString();
+          if (uid.isNotEmpty) userIds.add(uid);
+        }
+      }
+
+      Map<String, String> userNames = {};
+      if (userIds.isNotEmpty) {
+        final perfilesRes = await Supabase.instance.client
+            .from('perfiles')
+            .select('id, nombre, email')
+            .inFilter('id', userIds.toList());
+        userNames = {
+          for (final p in perfilesRes as List)
+            p['id'].toString(): (p['nombre'] != null && p['nombre'].toString().trim().isNotEmpty)
+                ? p['nombre'].toString().trim()
+                : (p['email'] ?? '').toString().trim()
+        };
+      }
+
+      for (final p in lista) {
+        final pid = p['id']?.toString();
+
+        DateTime? mejorFecha;
+        String? mejorUsuario;
+
+        if (p['modificado_at'] != null) {
+          final f = DateTime.tryParse(p['modificado_at'].toString());
+          if (f != null) {
+            mejorFecha = f;
+            final uid = p['modificado_por']?.toString();
+            mejorUsuario = (uid != null && userNames.containsKey(uid)) ? userNames[uid] : null;
+          }
+        }
+
+        if (pid != null && ultimosMovs.containsKey(pid)) {
+          final mov = ultimosMovs[pid]!;
+          final f = DateTime.tryParse(mov['created_at']?.toString() ?? '');
+          if (f != null && (mejorFecha == null || f.isAfter(mejorFecha))) {
+            mejorFecha = f;
+            final uid = mov['usuario_id']?.toString();
+            mejorUsuario = (uid != null && userNames.containsKey(uid)) ? userNames[uid] : null;
+          }
+        }
+
+        final inv = p['inventario'];
+        Map? invMap;
+        if (inv is List && inv.isNotEmpty && inv.first is Map) {
+          invMap = inv.first as Map;
+        } else if (inv is Map) {
+          invMap = inv;
+        }
+        if (invMap != null && invMap['actualizado_at'] != null) {
+          final f = DateTime.tryParse(invMap['actualizado_at'].toString());
+          if (f != null && (mejorFecha == null || f.isAfter(mejorFecha))) {
+            mejorFecha = f;
+            final uid = invMap['usuario_id']?.toString();
+            if (uid != null && userNames.containsKey(uid)) {
+              mejorUsuario = userNames[uid];
+            }
+          }
+        }
+
+        if (mejorFecha != null) {
+          p['modificado_fecha'] = mejorFecha.toIso8601String();
+        }
+        if (mejorUsuario != null) {
+          p['modificado_usuario'] = mejorUsuario;
+        }
+      }
+
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      debugPrint('Error al enriquecer modificado en inventario_page: $e');
     }
   }
 
@@ -474,9 +603,21 @@ class _InventarioPageState extends State<InventarioPage> {
         children: [
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
-            child: _isScanning ? _buildScanner() : _buildSearchBar(),
+            child: _isScanning
+                ? _buildScanner()
+                : BuscadorProductosWidget(
+                    controller: _searchController,
+                    modoBusqueda: _modoBusqueda,
+                    onQueryChanged: _onSearchChanged,
+                    onModoChanged: (nuevoModo) {
+                      setState(() => _modoBusqueda = nuevoModo);
+                      _reiniciarLista();
+                      if (_isLoading) setState(() => _isLoading = false);
+                      _cargarMasProductos();
+                    },
+                    onScanPressed: () => setState(() => _isScanning = true),
+                  ),
           ),
-          _buildChipsBusqueda(),
           FiltrosJerarquiaWidget(
             onFiltrosCambiados: (cat, clase, sub) {
               _catFiltro = cat;
@@ -564,6 +705,35 @@ class _InventarioPageState extends State<InventarioPage> {
                                       ),
                                       child: const Text("⚠️ STOCK EN 0 - REQUERE REGULARIZAR", style: TextStyle(color: Colors.orangeAccent, fontSize: 10, fontWeight: FontWeight.bold)),
                                     ),
+                                  Builder(
+                                    builder: (context) {
+                                      final String? uName = prod['modificado_usuario']?.toString();
+                                      final String userText = (uName != null && uName.trim().isNotEmpty)
+                                          ? uName.trim().toUpperCase()
+                                          : '—';
+
+                                      DateTime? modFecha;
+                                      if (prod['modificado_fecha'] != null) {
+                                        modFecha = DateTime.tryParse(prod['modificado_fecha'].toString());
+                                      } else if (prod['created_at'] != null) {
+                                        modFecha = DateTime.tryParse(prod['created_at'].toString());
+                                      }
+
+                                      if (userText == '—' && modFecha == null) return const SizedBox.shrink();
+
+                                      final dateStr = modFecha != null
+                                          ? DateFormat('dd/MM/yyyy HH:mm:ss').format(modFecha.toLocal())
+                                          : '—';
+
+                                      return Padding(
+                                        padding: const EdgeInsets.only(top: 4),
+                                        child: Text(
+                                          'Modificado: $userText  |  $dateStr',
+                                          style: const TextStyle(color: Colors.white38, fontSize: 10),
+                                        ),
+                                      );
+                                    },
+                                  ),
                                 ],
                               ),
                               trailing: IconButton(
@@ -592,154 +762,6 @@ class _InventarioPageState extends State<InventarioPage> {
           });
         },
         child: const Icon(Icons.add, color: Colors.white),
-      ),
-    );
-  }
-
-  Widget _buildSearchBar() {
-    return Padding(
-      key: const ValueKey(1),
-      padding: const EdgeInsets.all(16),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.circular(15),
-        ),
-        child: TextField(
-          controller: _searchController,
-          onChanged: _onSearchChanged,
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: 'Buscar producto...',
-            hintStyle: const TextStyle(color: Colors.grey),
-            prefixIcon: const Icon(Icons.search, color: Colors.blue),
-            suffixIcon: IconButton(
-              icon: const Icon(Icons.qr_code_scanner, color: Colors.blue),
-              onPressed: () => setState(() => _isScanning = true),
-            ),
-            border: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(vertical: 15),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildChipsBusqueda() {
-    final q = _searchQuery.trim();
-    final List<String> tokens = q.contains('%')
-        ? q.split('%').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
-        : (q.isNotEmpty ? [q] : []);
-
-    if (tokens.isEmpty) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text(
-                'Prioridad de búsqueda:',
-                style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold),
-              ),
-              if (tokens.length > 1) ...[
-                const SizedBox(width: 6),
-                const Text(
-                  '(Toca una etiqueta para moverla al 1er lugar)',
-                  style: TextStyle(color: Colors.blueAccent, fontSize: 10, fontStyle: FontStyle.italic),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: List.generate(tokens.length, (index) {
-              final token = tokens[index];
-              final bool esPrincipal = index == 0 && tokens.length > 1;
-
-              return InkWell(
-                borderRadius: BorderRadius.circular(20),
-                onTap: () {
-                  if (index == 0) return;
-                  final newTokens = [token, ...tokens.where((t) => t != token)];
-                  final newQuery = newTokens.join('%');
-                  setState(() {
-                    _searchQuery = newQuery;
-                    _searchController.text = newQuery;
-                  });
-                  _reiniciarLista();
-                  if (_isLoading) setState(() => _isLoading = false);
-                  _cargarMasProductos();
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: esPrincipal
-                        ? Colors.amber.withValues(alpha: 0.2)
-                        : Colors.blueAccent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: esPrincipal ? Colors.amberAccent : Colors.blueAccent.withValues(alpha: 0.4),
-                      width: esPrincipal ? 1.5 : 1.0,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        esPrincipal ? Icons.star_rounded : Icons.search_rounded,
-                        color: esPrincipal ? Colors.amberAccent : Colors.blueAccent,
-                        size: 14,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        token,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: esPrincipal ? FontWeight.bold : FontWeight.w500,
-                        ),
-                      ),
-                      if (esPrincipal) ...[
-                        const SizedBox(width: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: Colors.amberAccent.withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text(
-                            'Prioridad 1',
-                            style: TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(width: 6),
-                      InkWell(
-                        onTap: () {
-                          final newTokens = List<String>.from(tokens)..remove(token);
-                          final newQuery = newTokens.join('%');
-                          setState(() {
-                            _searchQuery = newQuery;
-                            _searchController.text = newQuery;
-                          });
-                          _reiniciarLista();
-                          if (_isLoading) setState(() => _isLoading = false);
-                          _cargarMasProductos();
-                        },
-                        child: const Icon(Icons.close, color: Colors.white70, size: 14),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ),
-        ],
       ),
     );
   }

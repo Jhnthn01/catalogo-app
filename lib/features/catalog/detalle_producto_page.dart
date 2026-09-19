@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:intl/intl.dart';
 
 import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:catalogo_digital_app/widgets/selector_tienda.dart';
@@ -34,6 +35,9 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
   late TextEditingController _costoController;
   late TextEditingController _precioVentaController;
 
+  DateTime? _fechaUltimoCosto;
+  DateTime? _fechaUltimoCostoOriginal;
+
   int _cantidadAReservar = 0;
   double _totalVenta = 0.0;
   List<dynamic> _stocks = [];
@@ -58,6 +62,17 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     _precioVentaController = TextEditingController(
       text: widget.producto['precio_venta']?.toString() ?? '0.0',
     );
+
+    DateTime? rawFecha;
+    if (widget.producto['fecha_ultimo_costo'] != null) {
+      rawFecha = DateTime.tryParse(widget.producto['fecha_ultimo_costo'].toString());
+    } else if (widget.producto['ultimo_costo_at'] != null) {
+      rawFecha = DateTime.tryParse(widget.producto['ultimo_costo_at'].toString());
+    } else if (widget.producto['created_at'] != null && (double.tryParse(widget.producto['ultimo_costo']?.toString() ?? '') ?? 0) > 0) {
+      rawFecha = DateTime.tryParse(widget.producto['created_at'].toString());
+    }
+    _fechaUltimoCosto = rawFecha?.toLocal();
+    _fechaUltimoCostoOriginal = _fechaUltimoCosto;
 
     _checkUserRole();
     _fetchStock();
@@ -310,14 +325,30 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                 );
               }),
             const SizedBox(height: 20),
-            if (mostrarCosto)
-              _buildTextField("COSTO", _costoController, enabled: _modoEdicion && puedeGestionFicha),
-            const SizedBox(height: 20),
+            if (mostrarCosto) ...[
+              _buildTextField(
+                "COSTO",
+                _costoController,
+                enabled: _modoEdicion && puedeGestionFicha,
+                isNumeric: true,
+                onChanged: (val) {
+                  if (_fechaUltimoCosto == _fechaUltimoCostoOriginal) {
+                    setState(() {
+                      _fechaUltimoCosto = DateTime.now();
+                    });
+                  }
+                },
+              ),
+              const SizedBox(height: 12),
+              _buildFechaUltimoCostoField(enabled: _modoEdicion && puedeGestionFicha),
+              const SizedBox(height: 20),
+            ],
             // ── Tarjetas informativas de costos (solo admin/gerente) ──────────
             if (puedeGestionFicha) ...[
               _buildCostInfoRow(
                 ultimoCosto: widget.producto['ultimo_costo'],
                 costoMedio: widget.producto['costo_medio'],
+                fechaUltimoCosto: _fechaUltimoCosto,
               ),
               const SizedBox(height: 20),
             ],
@@ -754,13 +785,42 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     }
 
     try {
-      await Supabase.instance.client.from('productos').update({
+      final currentUserId = Supabase.instance.client.auth.currentUser?.id;
+      final nowIso = DateTime.now().toUtc().toIso8601String();
+      final double? nuevoCosto = double.tryParse(_costoController.text);
+      final double? costoAnterior = double.tryParse(widget.producto['costo']?.toString() ?? '');
+      final bool costoModificado = nuevoCosto != null &&
+          (costoAnterior == null || (nuevoCosto - costoAnterior).abs() > 0.0001);
+
+      DateTime? fechaAGuardar = _fechaUltimoCosto;
+      // Si el costo numérico cambió y el usuario no editó manualmente la fecha, se asigna ahora
+      if (costoModificado && _fechaUltimoCosto == _fechaUltimoCostoOriginal) {
+        fechaAGuardar = DateTime.now();
+      } else if (fechaAGuardar == null && nuevoCosto != null && nuevoCosto > 0) {
+        fechaAGuardar = DateTime.now();
+      }
+
+      final String? fechaUltimoCostoIso = fechaAGuardar?.toUtc().toIso8601String();
+
+      final Map<String, dynamic> updateProducto = {
         'descripcion_1': _nameController.text.trim(),
         'descripcion_2': _descripcion2Controller.text.trim(),
         'alu': _aluController.text.trim(),
         'precio_venta': double.tryParse(_precioVentaController.text),
-        'costo': double.tryParse(_costoController.text),
-      }).eq('id', widget.producto['id']);
+        'costo': nuevoCosto,
+        'ultimo_costo': nuevoCosto,
+        'modificado_por': currentUserId,
+        'modificado_at': nowIso,
+      };
+
+      if (fechaUltimoCostoIso != null) {
+        updateProducto['fecha_ultimo_costo'] = fechaUltimoCostoIso;
+      }
+
+      await Supabase.instance.client
+          .from('productos')
+          .update(updateProducto)
+          .eq('id', widget.producto['id']);
 
       for (var s in _stocks) {
         final idStr = s['id'].toString();
@@ -769,19 +829,184 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
           final nuevoStock = int.tryParse(controller.text) ?? 0;
           await Supabase.instance.client.from('inventario').update({
             'stock': nuevoStock,
-            'actualizado_at': DateTime.now().toUtc().toIso8601String(),
+            'actualizado_at': nowIso,
+            'usuario_id': currentUserId,
           }).eq('id', s['id']);
         }
       }
 
+      // Sincronizar datos locales en el mapa
+      widget.producto['descripcion_1'] = updateProducto['descripcion_1'];
+      widget.producto['descripcion_2'] = updateProducto['descripcion_2'];
+      widget.producto['alu'] = updateProducto['alu'];
+      widget.producto['precio_venta'] = updateProducto['precio_venta'];
+      widget.producto['costo'] = updateProducto['costo'];
+      widget.producto['ultimo_costo'] = updateProducto['ultimo_costo'];
+      if (fechaUltimoCostoIso != null) {
+        widget.producto['fecha_ultimo_costo'] = fechaUltimoCostoIso;
+      }
+
       if (mounted) {
-        setState(() => _modoEdicion = false);
+        setState(() {
+          _modoEdicion = false;
+          _fechaUltimoCosto = fechaAGuardar;
+          _fechaUltimoCostoOriginal = fechaAGuardar;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text("Actualizado con éxito")));
+          const SnackBar(
+            content: Text("Producto actualizado con éxito"),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
-      debugPrint("Error: $e");
+      debugPrint("Error al guardar: $e");
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text("Error al guardar: $e"),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
     }
+  }
+
+  Future<void> _seleccionarFechaUltimoCosto() async {
+    final initial = _fechaUltimoCosto ?? DateTime.now();
+    final DateTime? pickedDate = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Colors.blueAccent,
+              onPrimary: Colors.white,
+              surface: Color(0xFF1E1E1E),
+              onSurface: Colors.white,
+            ),
+            dialogTheme: const DialogThemeData(backgroundColor: Color(0xFF1E1E1E)),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (pickedDate == null) return;
+
+    if (!mounted) return;
+    final TimeOfDay? pickedTime = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(initial),
+      builder: (context, child) {
+        return Theme(
+          data: ThemeData.dark().copyWith(
+            colorScheme: const ColorScheme.dark(
+              primary: Colors.blueAccent,
+              onPrimary: Colors.white,
+              surface: Color(0xFF1E1E1E),
+              onSurface: Colors.white,
+            ),
+            dialogTheme: const DialogThemeData(backgroundColor: Color(0xFF1E1E1E)),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    final selectedDateTime = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+      pickedTime?.hour ?? initial.hour,
+      pickedTime?.minute ?? initial.minute,
+    );
+
+    setState(() {
+      _fechaUltimoCosto = selectedDateTime;
+    });
+  }
+
+  Widget _buildFechaUltimoCostoField({required bool enabled}) {
+    final String fechaFmt = _fechaUltimoCosto != null
+        ? DateFormat('dd/MM/yyyy HH:mm:ss').format(_fechaUltimoCosto!)
+        : 'Sin registrar (se asignará automáticamente al guardar)';
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'FECHA DEL ÚLTIMO COSTO',
+              style: TextStyle(color: Colors.grey, fontSize: 11),
+            ),
+            if (enabled)
+              const Text(
+                'Toca para editar',
+                style: TextStyle(color: Colors.blueAccent, fontSize: 10, fontStyle: FontStyle.italic),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        InkWell(
+          onTap: enabled ? _seleccionarFechaUltimoCosto : null,
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              color: enabled ? Colors.grey.shade900 : Colors.black26,
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(
+                color: enabled ? Colors.blueAccent.withOpacity(0.5) : Colors.white10,
+              ),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.calendar_today_outlined,
+                  color: enabled ? Colors.blueAccent : Colors.white38,
+                  size: 18,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    fechaFmt,
+                    style: TextStyle(
+                      color: enabled ? Colors.white : Colors.white54,
+                      fontSize: 13,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ),
+                if (enabled) ...[
+                  IconButton(
+                    tooltip: 'Usar fecha y hora actual',
+                    icon: const Icon(Icons.today, color: Colors.tealAccent, size: 20),
+                    onPressed: () {
+                      setState(() => _fechaUltimoCosto = DateTime.now());
+                    },
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.all(4),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton(
+                    tooltip: 'Seleccionar en calendario',
+                    icon: const Icon(Icons.edit_calendar, color: Colors.blueAccent, size: 20),
+                    onPressed: _seleccionarFechaUltimoCosto,
+                    constraints: const BoxConstraints(),
+                    padding: const EdgeInsets.all(4),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   Widget _buildTextField(
@@ -821,7 +1046,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
 
   /// Muestra las tarjetas de Último Costo y Costo Medio Variable (PMP).
   /// Solo visible para admin/gerente cuando puedeGestionFicha == true.
-  Widget _buildCostInfoRow({dynamic ultimoCosto, dynamic costoMedio}) {
+  Widget _buildCostInfoRow({dynamic ultimoCosto, dynamic costoMedio, DateTime? fechaUltimoCosto}) {
     final double? baseCosto = double.tryParse(widget.producto['costo']?.toString() ?? '');
     final double? rawUc = ultimoCosto != null ? double.tryParse(ultimoCosto.toString()) : null;
     final double? rawCm = costoMedio != null ? double.tryParse(costoMedio.toString()) : null;
@@ -829,8 +1054,12 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
     final double? uc = (rawUc != null && rawUc > 0) ? rawUc : baseCosto;
     final double? cm = (rawCm != null && rawCm > 0) ? rawCm : baseCosto;
 
-    String _fmt(double? v) =>
+    String formatMonto(double? v) =>
         v != null ? 'S/. ${v.toStringAsFixed(2)}' : '—';
+
+    final String fechaTexto = fechaUltimoCosto != null
+        ? DateFormat('dd/MM/yyyy HH:mm:ss').format(fechaUltimoCosto)
+        : 'Sin registrar';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -849,7 +1078,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                 decoration: BoxDecoration(
                   color: Colors.blueGrey.shade900,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.blueAccent.withOpacity(0.3)),
+                  border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.3)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -868,12 +1097,31 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      _fmt(uc),
+                      formatMonto(uc),
                       style: const TextStyle(
                         color: Colors.white,
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
                       ),
+                    ),
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        const Icon(Icons.calendar_today, size: 11, color: Colors.white38),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            fechaTexto,
+                            style: const TextStyle(
+                              color: Colors.white54,
+                              fontSize: 10,
+                              fontFamily: 'monospace',
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -894,7 +1142,7 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                   decoration: BoxDecoration(
                     color: Colors.teal.shade900,
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: Colors.tealAccent.withOpacity(0.3)),
+                    border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.3)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -914,12 +1162,17 @@ class _DetalleProductoPageState extends State<DetalleProductoPage> {
                       ),
                       const SizedBox(height: 8),
                       Text(
-                        _fmt(cm),
+                        formatMonto(cm),
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Ponderado auto',
+                        style: TextStyle(color: Colors.white38, fontSize: 10),
                       ),
                     ],
                   ),

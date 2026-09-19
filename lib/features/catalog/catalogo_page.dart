@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -10,6 +11,7 @@ import 'package:catalogo_digital_app/services/cart_service.dart';
 import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:catalogo_digital_app/widgets/menu_lateral.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
+import 'package:catalogo_digital_app/widgets/buscador_productos_widget.dart';
 import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
 import 'package:catalogo_digital_app/features/orders/pedidos_entregados_page.dart';
 import 'package:catalogo_digital_app/features/orders/order_pdf_helper.dart';
@@ -32,6 +34,8 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
   bool _isConfirming = false;  // separate flag for order submission only
   bool _isScanning = false;
   String _searchQuery = "";
+  String _modoBusqueda = 'cualquiera';
+  Timer? _searchDebounce;
   final ScrollController _scrollController = ScrollController();
   final TextEditingController _searchController = TextEditingController();
 
@@ -167,7 +171,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
       final rol = _userRol?.toLowerCase() ?? 'cliente';
       final bool esOperativo = !(rol == 'admin' || rol == 'administrador' || rol == 'gerente');
 
-      final fields = 'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio';
+      final fields = 'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, fecha_ultimo_costo, costo_medio';
       final invSelect = (tiendaId != null || esOperativo)
           ? '$fields, inventario!inner(stock, tienda_id)'
           : '$fields, inventario(stock, tienda_id)';
@@ -200,6 +204,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
           'p_sub_clase': _subClaseFiltro,
           'p_limit': 500,
           'p_offset': 0,
+          'p_modo': _modoBusqueda,
         };
 
         final List<dynamic> data = await _supabase.rpc(
@@ -209,7 +214,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
 
         final list = List<dynamic>.from(data);
 
-        if (tokens.length > 1) {
+        if (_modoBusqueda == 'cualquiera' && tokens.length > 1) {
           int firstMatchIndex(dynamic prod) {
             final desc1 = (prod['descripcion_1'] ?? '').toString().toLowerCase();
             final sku = (prod['sku'] ?? '').toString().toLowerCase();
@@ -310,12 +315,27 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                   SliverToBoxAdapter(
                     child: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 300),
-                      child: _isScanning ? _buildScanner() : _buildSearchBar(),
+                      child: _isScanning
+                          ? _buildScanner()
+                          : BuscadorProductosWidget(
+                              controller: _searchController,
+                              modoBusqueda: _modoBusqueda,
+                              onQueryChanged: (val) {
+                                _searchQuery = val.trim();
+                                _searchDebounce?.cancel();
+                                _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+                                  if (mounted) _fetchProductos(refresh: true);
+                                });
+                              },
+                              onModoChanged: (nuevoModo) {
+                                setState(() {
+                                  _modoBusqueda = nuevoModo;
+                                });
+                                _fetchProductos(refresh: true);
+                              },
+                              onScanPressed: () => setState(() => _isScanning = true),
+                            ),
                     ),
-                  ),
-
-                  SliverToBoxAdapter(
-                    child: _buildChipsBusqueda(),
                   ),
 
                   // Hierarchy filters
@@ -1072,168 +1092,6 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
   }
 
   // ─── Search Bar ─────────────────────────────────────────────────────────────
-  Widget _buildSearchBar() {
-    return Padding(
-      key: const ValueKey(1),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      child: Container(
-        decoration: BoxDecoration(
-          color: const Color(0xFF1E1E1E),
-          borderRadius: BorderRadius.circular(15),
-          border: Border.all(color: Colors.white10),
-        ),
-        child: TextField(
-          controller: _searchController,
-          onChanged: (val) {
-            setState(() {
-              _searchQuery = val.trim();
-            });
-            _fetchProductos(refresh: true);
-          },
-          style: const TextStyle(color: Colors.white),
-          decoration: InputDecoration(
-            hintText: "Buscar producto...",
-            hintStyle: const TextStyle(color: Colors.grey),
-            prefixIcon: const Icon(Icons.search, color: Colors.blueAccent),
-            suffixIcon: _searchController.text.isEmpty
-                ? IconButton(
-                    icon: const Icon(Icons.qr_code_scanner, color: Colors.blueAccent),
-                    onPressed: () => setState(() => _isScanning = true),
-                  )
-                : IconButton(
-                    icon: const Icon(Icons.clear, color: Colors.grey),
-                    onPressed: () {
-                      setState(() {
-                        _searchController.clear();
-                        _searchQuery = "";
-                      });
-                      FocusScope.of(context).unfocus();
-                      _fetchProductos(refresh: true);
-                    },
-                  ),
-            border: InputBorder.none,
-            contentPadding: const EdgeInsets.symmetric(vertical: 15),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildChipsBusqueda() {
-    final q = _searchQuery.trim();
-    final List<String> tokens = q.contains('%')
-        ? q.split('%').map((t) => t.trim()).where((t) => t.isNotEmpty).toList()
-        : (q.isNotEmpty ? [q] : []);
-
-    if (tokens.isEmpty) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text(
-                'Prioridad de búsqueda:',
-                style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold),
-              ),
-              if (tokens.length > 1) ...[
-                const SizedBox(width: 6),
-                const Text(
-                  '(Toca una etiqueta para moverla al 1er lugar)',
-                  style: TextStyle(color: Colors.blueAccent, fontSize: 10, fontStyle: FontStyle.italic),
-                ),
-              ],
-            ],
-          ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            children: List.generate(tokens.length, (index) {
-              final token = tokens[index];
-              final bool esPrincipal = index == 0 && tokens.length > 1;
-
-              return InkWell(
-                borderRadius: BorderRadius.circular(20),
-                onTap: () {
-                  if (index == 0) return;
-                  final newTokens = [token, ...tokens.where((t) => t != token)];
-                  final newQuery = newTokens.join('%');
-                  setState(() {
-                    _searchQuery = newQuery;
-                    _searchController.text = newQuery;
-                  });
-                  _fetchProductos(refresh: true);
-                },
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: esPrincipal
-                        ? Colors.amber.withValues(alpha: 0.2)
-                        : Colors.blueAccent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: esPrincipal ? Colors.amberAccent : Colors.blueAccent.withValues(alpha: 0.4),
-                      width: esPrincipal ? 1.5 : 1.0,
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        esPrincipal ? Icons.star_rounded : Icons.search_rounded,
-                        color: esPrincipal ? Colors.amberAccent : Colors.blueAccent,
-                        size: 14,
-                      ),
-                      const SizedBox(width: 5),
-                      Text(
-                        token,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: esPrincipal ? FontWeight.bold : FontWeight.w500,
-                        ),
-                      ),
-                      if (esPrincipal) ...[
-                        const SizedBox(width: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
-                          decoration: BoxDecoration(
-                            color: Colors.amberAccent.withValues(alpha: 0.3),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: const Text(
-                            'Prioridad 1',
-                            style: TextStyle(color: Colors.amberAccent, fontSize: 9, fontWeight: FontWeight.bold),
-                          ),
-                        ),
-                      ],
-                      const SizedBox(width: 6),
-                      InkWell(
-                        onTap: () {
-                          final newTokens = List<String>.from(tokens)..remove(token);
-                          final newQuery = newTokens.join('%');
-                          setState(() {
-                            _searchQuery = newQuery;
-                            _searchController.text = newQuery;
-                          });
-                          _fetchProductos(refresh: true);
-                        },
-                        child: const Icon(Icons.close, color: Colors.white70, size: 14),
-                      ),
-                    ],
-                  ),
-                ),
-              );
-            }),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildScanner() {
     return Padding(
       key: const ValueKey(2),
@@ -1495,6 +1353,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Row(
+                              mainAxisSize: MainAxisSize.min,
                               children: [
                                 _buildCircularButton(
                                   icon: Icons.remove,
@@ -1504,6 +1363,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                                     setState(() {});
                                   },
                                 ),
+                                const SizedBox(width: 2),
                                 // Tappable quantity — opens keyboard dialog
                                 GestureDetector(
                                   onTap: () async {
@@ -1560,7 +1420,7 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                                     }
                                   },
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                                     decoration: BoxDecoration(
                                       color: Colors.blueAccent.withValues(alpha: 0.1),
                                       borderRadius: BorderRadius.circular(8),
@@ -1570,12 +1430,13 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                                       '${item.cantidad}',
                                       style: const TextStyle(
                                         color: Colors.white,
-                                        fontSize: 16,
+                                        fontSize: 15,
                                         fontWeight: FontWeight.bold,
                                       ),
                                     ),
                                   ),
                                 ),
+                                const SizedBox(width: 2),
                                 _buildCircularButton(
                                   icon: Icons.add,
                                   color: Colors.blueAccent,
@@ -1586,25 +1447,36 @@ class _CatalogoPageState extends State<CatalogoPage> with RouteAware {
                                 ),
                               ],
                             ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  "P.U. S/.${item.precio.toStringAsFixed(2)}",
-                                  style: const TextStyle(color: Colors.grey, fontSize: 11),
-                                ),
-                                Text(
-                                  "P.T. S/.${(item.precio * item.cantidad).toStringAsFixed(2)}",
-                                  style: const TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 14,
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      "P.U. S/.${item.precio.toStringAsFixed(2)}",
+                                      style: const TextStyle(color: Colors.grey, fontSize: 11),
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      "P.T. S/.${(item.precio * item.cantidad).toStringAsFixed(2)}",
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent),
+                              padding: const EdgeInsets.all(4),
+                              constraints: const BoxConstraints(),
+                              icon: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 22),
                               onPressed: () async {
                                 final confirm = await showDialog<bool>(
                                   context: context,

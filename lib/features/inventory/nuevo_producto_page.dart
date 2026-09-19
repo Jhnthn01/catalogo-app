@@ -54,6 +54,7 @@ class _NuevoProductoPageState extends State<NuevoProductoPage> {
       final double costo = double.tryParse(_costoController.text) ?? 0.0;
       final double precio = double.tryParse(_precioVentaController.text) ?? 0.0;
 
+      final nowIso = DateTime.now().toUtc().toIso8601String();
       await Supabase.instance.client.from('productos').insert({
         'sku': _skuController.text.trim(),
         'upc': _upcController.text.trim().isEmpty ? null : _upcController.text.trim(),
@@ -68,6 +69,11 @@ class _NuevoProductoPageState extends State<NuevoProductoPage> {
         'color': _colorController.text.trim().isEmpty ? null : _colorController.text.trim(),
         'costo': costo,
         'precio_venta': precio,
+        'ultimo_costo': costo,
+        'costo_medio': costo,
+        'fecha_ultimo_costo': costo > 0 ? nowIso : null,
+        'modificado_por': Supabase.instance.client.auth.currentUser?.id,
+        'modificado_at': nowIso,
       });
 
       if (mounted) {

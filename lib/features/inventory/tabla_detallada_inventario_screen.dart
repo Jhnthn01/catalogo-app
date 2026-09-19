@@ -7,6 +7,7 @@ import 'package:catalogo_digital_app/features/catalog/detalle_producto_page.dart
 import 'package:catalogo_digital_app/features/inventory/nuevo_producto_page.dart';
 import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
+import 'package:catalogo_digital_app/widgets/buscador_productos_widget.dart';
 import 'package:catalogo_digital_app/services/tienda_service.dart';
 
 class TablaDetalladaInventarioScreen extends StatefulWidget {
@@ -29,6 +30,7 @@ class _TablaDetalladaInventarioScreenState
   bool _isLoadingMas = false;
   bool _hasMore = true;
   String _searchQuery = '';
+  String _modoBusqueda = 'cualquiera';
   int _totalProductosCount = 0;
 
   // KPIs globales: se calculan solo en carga inicial / refresh sin filtro.
@@ -133,13 +135,13 @@ class _TablaDetalladaInventarioScreenState
       final rol = TiendaService().usuarioRol?.toLowerCase() ?? 'cliente';
       final bool esAdmin = rol == 'admin' || rol == 'administrador' || rol == 'gerente';
       final String invJoin = (tiendaId != null || !esAdmin)
-          ? 'inventario!inner(stock, tienda_id)'
-          : 'inventario(stock, tienda_id)';
+          ? 'inventario!inner(stock, tienda_id, actualizado_at, usuario_id)'
+          : 'inventario(stock, tienda_id, actualizado_at, usuario_id)';
 
       var query = Supabase.instance.client
           .from('productos')
           .select(
-            'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio, $invJoin',
+            'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, fecha_ultimo_costo, costo_medio, created_at, modificado_por, modificado_at, $invJoin',
           );
 
       if (tiendaId != null) {
@@ -166,6 +168,7 @@ class _TablaDetalladaInventarioScreenState
           'p_sub_clase': _subClaseFiltro,
           'p_limit': 500,
           'p_offset': 0,
+          'p_modo': _modoBusqueda,
         };
 
         final List<dynamic> data = await Supabase.instance.client.rpc(
@@ -176,13 +179,13 @@ class _TablaDetalladaInventarioScreenState
         lista = List<Map<String, dynamic>>.from(data);
       } else {
         final String invJoin = (tiendaId != null || !esAdmin)
-            ? 'inventario!inner(stock, tienda_id)'
-            : 'inventario(stock, tienda_id)';
+            ? 'inventario!inner(stock, tienda_id, actualizado_at, usuario_id)'
+            : 'inventario(stock, tienda_id, actualizado_at, usuario_id)';
 
         var query = Supabase.instance.client
             .from('productos')
             .select(
-              'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio, $invJoin',
+              'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, fecha_ultimo_costo, costo_medio, created_at, modificado_por, modificado_at, $invJoin',
             );
 
         if (tiendaId != null) {
@@ -212,6 +215,7 @@ class _TablaDetalladaInventarioScreenState
         _aplicarFiltros();
         _isLoading = false;
       });
+      _enriquecerModificados(lista);
     } catch (e) {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -237,13 +241,13 @@ class _TablaDetalladaInventarioScreenState
       final rolMas = TiendaService().usuarioRol?.toLowerCase() ?? 'cliente';
       final bool esAdminMas = rolMas == 'admin' || rolMas == 'administrador' || rolMas == 'gerente';
       final String invJoinMas = (tiendaIdMas != null || !esAdminMas)
-          ? 'inventario!inner(stock, tienda_id)'
-          : 'inventario(stock, tienda_id)';
+          ? 'inventario!inner(stock, tienda_id, actualizado_at, usuario_id)'
+          : 'inventario(stock, tienda_id, actualizado_at, usuario_id)';
 
       var query = Supabase.instance.client
           .from('productos')
           .select(
-            'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, costo_medio, $invJoinMas',
+            'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, fecha_ultimo_costo, costo_medio, created_at, modificado_por, modificado_at, $invJoinMas',
           );
 
       if (tiendaIdMas != null) {
@@ -270,6 +274,7 @@ class _TablaDetalladaInventarioScreenState
           _hasMore = false;
         }
         _aplicarFiltros();
+        _enriquecerModificados(lista);
       } else {
         _hasMore = false;
       }
@@ -281,6 +286,148 @@ class _TablaDetalladaInventarioScreenState
           _isLoadingMas = false;
         });
       }
+    }
+  }
+
+  /// Enriquece la lista con el último movimiento de kardex, modificado_por y el nombre de usuario
+  Future<void> _enriquecerModificados(List<Map<String, dynamic>> lista) async {
+    final ids = lista
+        .map((p) => p['id']?.toString())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet()
+        .toList();
+    if (ids.isEmpty) return;
+
+    try {
+      final List<dynamic> res = await Supabase.instance.client
+          .from('kardex_movimientos')
+          .select('producto_id, usuario_id, created_at, costo_unitario')
+          .inFilter('producto_id', ids)
+          .order('created_at', ascending: false);
+
+      final Map<String, Map<String, dynamic>> ultimosMovs = {};
+      final Map<String, String> ultimosCostosMovs = {};
+
+      for (final row in res) {
+        if (row is Map) {
+          final pid = row['producto_id']?.toString();
+          if (pid != null && !ultimosMovs.containsKey(pid)) {
+            ultimosMovs[pid] = Map<String, dynamic>.from(row);
+          }
+          final costo = num.tryParse(row['costo_unitario']?.toString() ?? '0') ?? 0;
+          if (pid != null && costo > 0 && !ultimosCostosMovs.containsKey(pid)) {
+            ultimosCostosMovs[pid] = row['created_at']?.toString() ?? '';
+          }
+        }
+      }
+
+      final Set<String> userIds = {};
+      for (final m in ultimosMovs.values) {
+        final uid = m['usuario_id']?.toString();
+        if (uid != null && uid.isNotEmpty) userIds.add(uid);
+      }
+
+      for (final p in lista) {
+        final modPor = p['modificado_por']?.toString();
+        if (modPor != null && modPor.isNotEmpty) userIds.add(modPor);
+
+        final inv = p['inventario'];
+        if (inv is List) {
+          for (final row in inv) {
+            if (row is Map && row['usuario_id'] != null) {
+              final uid = row['usuario_id'].toString();
+              if (uid.isNotEmpty) userIds.add(uid);
+            }
+          }
+        } else if (inv is Map && inv['usuario_id'] != null) {
+          final uid = inv['usuario_id'].toString();
+          if (uid.isNotEmpty) userIds.add(uid);
+        }
+      }
+
+      Map<String, String> userNames = {};
+      if (userIds.isNotEmpty) {
+        final perfilesRes = await Supabase.instance.client
+            .from('perfiles')
+            .select('id, nombre, email')
+            .inFilter('id', userIds.toList());
+        userNames = {
+          for (final p in perfilesRes as List)
+            p['id'].toString(): (p['nombre'] != null && p['nombre'].toString().trim().isNotEmpty)
+                ? p['nombre'].toString().trim()
+                : (p['email'] ?? '').toString().trim()
+        };
+      }
+
+      for (final p in lista) {
+        final pid = p['id']?.toString();
+
+        DateTime? mejorFecha;
+        String? mejorUsuario;
+
+        // 1. productos.modificado_at & productos.modificado_por
+        if (p['modificado_at'] != null) {
+          final f = DateTime.tryParse(p['modificado_at'].toString());
+          if (f != null) {
+            mejorFecha = f;
+            final uid = p['modificado_por']?.toString();
+            mejorUsuario = (uid != null && userNames.containsKey(uid)) ? userNames[uid] : null;
+          }
+        }
+
+        // 2. kardex_movimientos
+        if (pid != null && ultimosMovs.containsKey(pid)) {
+          final mov = ultimosMovs[pid]!;
+          final f = DateTime.tryParse(mov['created_at']?.toString() ?? '');
+          if (f != null && (mejorFecha == null || f.isAfter(mejorFecha))) {
+            mejorFecha = f;
+            final uid = mov['usuario_id']?.toString();
+            mejorUsuario = (uid != null && userNames.containsKey(uid)) ? userNames[uid] : null;
+          }
+        }
+
+        // 3. inventario actualizado_at / usuario_id
+        final inv = p['inventario'];
+        Map? invMap;
+        if (inv is List && inv.isNotEmpty && inv.first is Map) {
+          invMap = inv.first as Map;
+        } else if (inv is Map) {
+          invMap = inv;
+        }
+        if (invMap != null && invMap['actualizado_at'] != null) {
+          final f = DateTime.tryParse(invMap['actualizado_at'].toString());
+          if (f != null && (mejorFecha == null || f.isAfter(mejorFecha))) {
+            mejorFecha = f;
+            final uid = invMap['usuario_id']?.toString();
+            if (uid != null && userNames.containsKey(uid)) {
+              mejorUsuario = userNames[uid];
+            }
+          }
+        }
+
+        if (mejorFecha != null) {
+          p['modificado_fecha'] = mejorFecha.toIso8601String();
+        }
+        if (mejorUsuario != null) {
+          p['modificado_usuario'] = mejorUsuario;
+        }
+
+        // Resolver fecha de último costo si aún no está asignada
+        if (p['fecha_ultimo_costo'] == null) {
+          if (pid != null && ultimosCostosMovs.containsKey(pid)) {
+            p['fecha_ultimo_costo'] = ultimosCostosMovs[pid];
+          } else if (p['created_at'] != null) {
+            p['fecha_ultimo_costo'] = p['created_at'];
+          }
+        }
+      }
+
+      if (mounted) {
+        setState(() {});
+      }
+    } catch (e) {
+      debugPrint('Error al enriquecer modificado en inventario: $e');
     }
   }
 
@@ -305,20 +452,19 @@ class _TablaDetalladaInventarioScreenState
         final upc = (p['upc'] ?? '').toString().toLowerCase();
         final alu = (p['alu'] ?? '').toString().toLowerCase();
 
-        return tokens.any((t) {
-          final token = t.toLowerCase();
-          return sku.contains(token) ||
-              nombre.contains(token) ||
-              marca.contains(token) ||
-              upc.contains(token) ||
-              alu.contains(token);
-        });
+        final fullText = '$sku $nombre $marca $upc $alu';
+
+        if (_modoBusqueda == 'todas') {
+          if (!tokens.every((t) => fullText.contains(t.toLowerCase()))) return false;
+        } else {
+          if (!tokens.any((t) => fullText.contains(t.toLowerCase()))) return false;
+        }
       }
 
       return true;
     }).toList();
 
-    if (tokens.length > 1 && _sortColumnIndex == 1) {
+    if (_modoBusqueda == 'cualquiera' && tokens.length > 1 && _sortColumnIndex == 1) {
       int primerMatchIndex(Map<String, dynamic> p) {
         final sku = (p['sku'] ?? '').toString().toLowerCase();
         final nombre = (p['descripcion_1'] ?? '').toString().toLowerCase();
@@ -395,6 +541,10 @@ class _TablaDetalladaInventarioScreenState
         case 8: // Margen (%)
           valA = _calcularMargen(a);
           valB = _calcularMargen(b);
+          break;
+        case 10: // MODIFICADO
+          valA = a['modificado_fecha']?.toString() ?? '';
+          valB = b['modificado_fecha']?.toString() ?? '';
           break;
         default:
           valA = (a['descripcion_1'] ?? '').toString().toLowerCase();
@@ -644,54 +794,49 @@ class _TablaDetalladaInventarioScreenState
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: Container(
-              height: 44,
-              decoration: BoxDecoration(
-                color: const Color(0xFF1E1E1E),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: Colors.white12),
-              ),
-              child: TextField(
-                controller: _searchController,
-                onChanged: (val) {
-                  _debounceTimer?.cancel();
-                  _debounceTimer = Timer(const Duration(milliseconds: 300), () {
-                    if (!mounted) return;
-                    setState(() {
-                      _searchQuery = val;
-                    });
-                    _cargarProductos();
+            child: BuscadorProductosWidget(
+              controller: _searchController,
+              modoBusqueda: _modoBusqueda,
+              mostrarEscaner: false,
+              mostrarChips: false,
+              onQueryChanged: (val) {
+                _debounceTimer?.cancel();
+                _debounceTimer = Timer(const Duration(milliseconds: 300), () {
+                  if (!mounted) return;
+                  setState(() {
+                    _searchQuery = val;
                   });
-                },
-                style: const TextStyle(color: Colors.white, fontSize: 14),
-                decoration: const InputDecoration(
-                  hintText: 'Buscar por SKU, Nombre, Marca, UPC o ALU...',
-                  hintStyle: TextStyle(color: Colors.grey, fontSize: 13),
-                  prefixIcon: Icon(Icons.search, color: Colors.blueAccent, size: 20),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.symmetric(vertical: 10),
-                ),
-              ),
+                  _cargarProductos();
+                });
+              },
+              onModoChanged: (nuevoModo) {
+                setState(() => _modoBusqueda = nuevoModo);
+                _cargarProductos();
+              },
             ),
           ),
           const SizedBox(width: 12),
-          IconButton(
-            tooltip: 'Recargar Datos',
-            style: IconButton.styleFrom(
-              backgroundColor: const Color(0xFF1E1E1E),
-              padding: const EdgeInsets.all(12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10),
-                side: const BorderSide(color: Colors.white12),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: IconButton(
+              tooltip: 'Recargar Datos',
+              style: IconButton.styleFrom(
+                backgroundColor: const Color(0xFF1E1E1E),
+                padding: const EdgeInsets.all(12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  side: const BorderSide(color: Colors.white12),
+                ),
               ),
+              icon: const Icon(Icons.refresh, color: Colors.blueAccent, size: 20),
+              onPressed: () {
+                _cargarKpisGlobales();
+                _cargarProductos();
+              },
             ),
-            icon: const Icon(Icons.refresh, color: Colors.blueAccent, size: 20),
-            onPressed: () {
-              _cargarKpisGlobales();
-              _cargarProductos();
-            },
           ),
           const SizedBox(width: 12),
           OutlinedButton.icon(
@@ -756,6 +901,8 @@ class _TablaDetalladaInventarioScreenState
 
     if (tokens.isEmpty) return const SizedBox.shrink();
 
+    final bool esModoCualquiera = _modoBusqueda == 'cualquiera';
+
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Column(
@@ -763,11 +910,13 @@ class _TablaDetalladaInventarioScreenState
         children: [
           Row(
             children: [
-              const Text(
-                'Prioridad de búsqueda:',
-                style: TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold),
+              Text(
+                esModoCualquiera
+                    ? 'Prioridad de búsqueda:'
+                    : 'Tokens de búsqueda (Todos obligatorios):',
+                style: const TextStyle(color: Colors.white54, fontSize: 11, fontWeight: FontWeight.bold),
               ),
-              if (tokens.length > 1) ...[
+              if (esModoCualquiera && tokens.length > 1) ...[
                 const SizedBox(width: 6),
                 const Text(
                   '(Toca una etiqueta para moverla al 1er lugar)',
@@ -782,20 +931,22 @@ class _TablaDetalladaInventarioScreenState
             runSpacing: 6,
             children: List.generate(tokens.length, (index) {
               final token = tokens[index];
-              final bool esPrincipal = index == 0 && tokens.length > 1;
+              final bool esPrincipal = esModoCualquiera && index == 0 && tokens.length > 1;
 
               return InkWell(
                 borderRadius: BorderRadius.circular(20),
-                onTap: () {
-                  if (index == 0) return;
-                  final newTokens = [token, ...tokens.where((t) => t != token)];
-                  final newQuery = newTokens.join('%');
-                  setState(() {
-                    _searchQuery = newQuery;
-                    _searchController.text = newQuery;
-                  });
-                  _cargarProductos();
-                },
+                onTap: esModoCualquiera
+                    ? () {
+                        if (index == 0) return;
+                        final newTokens = [token, ...tokens.where((t) => t != token)];
+                        final newQuery = newTokens.join('%');
+                        setState(() {
+                          _searchQuery = newQuery;
+                          _searchController.text = newQuery;
+                        });
+                        _cargarProductos();
+                      }
+                    : null,
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                   decoration: BoxDecoration(
@@ -966,6 +1117,10 @@ class _TablaDetalladaInventarioScreenState
                               const DataColumn(
                                 label: Text('Acciones', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
                               ),
+                              DataColumn(
+                                label: const Text('Modificado', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                onSort: (idx, asc) => _onSort(idx, asc),
+                              ),
                             ],
                             rows: List.generate(
                               _productosFiltrados.length < _rowsPerPage ? _productosFiltrados.length : _rowsPerPage,
@@ -1075,6 +1230,7 @@ class _InventarioDataTableSource extends DataTableSource {
           DataCell(Text('—', style: TextStyle(color: Colors.grey))),
           DataCell(Text('—', style: TextStyle(color: Colors.grey))),
           DataCell(SizedBox.shrink()),
+          DataCell(Text('—', style: TextStyle(color: Colors.grey))),
         ],
       );
     }
@@ -1173,11 +1329,47 @@ class _InventarioDataTableSource extends DataTableSource {
             ),
           ),
         ),
-        // Último Costo
+        // Último Costo (Monto en línea 1, Fecha/Hora en línea 2)
         DataCell(
-          Text(
-            monedaFmt.format(ultimoCosto),
-            style: const TextStyle(color: Colors.blueAccent, fontSize: 13),
+          Builder(
+            builder: (context) {
+              DateTime? fechaCosto;
+              if (prod['fecha_ultimo_costo'] != null) {
+                fechaCosto = DateTime.tryParse(prod['fecha_ultimo_costo'].toString());
+              } else if (prod['ultimo_costo_at'] != null) {
+                fechaCosto = DateTime.tryParse(prod['ultimo_costo_at'].toString());
+              } else if (prod['created_at'] != null) {
+                fechaCosto = DateTime.tryParse(prod['created_at'].toString());
+              }
+
+              final String fechaTexto = fechaCosto != null
+                  ? DateFormat('dd/MM/yyyy HH:mm:ss').format(fechaCosto.toLocal())
+                  : '—';
+
+              return Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    monedaFmt.format(ultimoCosto),
+                    style: const TextStyle(
+                      color: Colors.blueAccent,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    fechaTexto,
+                    style: const TextStyle(
+                      color: Colors.white54,
+                      fontSize: 10,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
         // Costo Medio Variable
@@ -1241,6 +1433,63 @@ class _InventarioDataTableSource extends DataTableSource {
             icon: const Icon(Icons.edit_note, color: Colors.blueAccent),
             tooltip: 'Editar Ficha / Inventario',
             onPressed: () => onEdit(prod),
+          ),
+        ),
+        // MODIFICADO (Usuario en línea 1, Fecha/Hora en línea 2)
+        DataCell(
+          Builder(
+            builder: (context) {
+              final String? uName = prod['modificado_usuario']?.toString();
+              final String userText = (uName != null && uName.trim().isNotEmpty)
+                  ? uName.trim().toUpperCase()
+                  : '—';
+
+              DateTime? modFecha;
+              if (prod['modificado_fecha'] != null) {
+                modFecha = DateTime.tryParse(prod['modificado_fecha'].toString());
+              } else {
+                final inv = prod['inventario'];
+                if (inv is List && inv.isNotEmpty && inv.first is Map && inv.first['actualizado_at'] != null) {
+                  modFecha = DateTime.tryParse(inv.first['actualizado_at'].toString());
+                } else if (inv is Map && inv['actualizado_at'] != null) {
+                  modFecha = DateTime.tryParse(inv['actualizado_at'].toString());
+                } else if (prod['created_at'] != null) {
+                  modFecha = DateTime.tryParse(prod['created_at'].toString());
+                }
+              }
+
+              final String dateText = modFecha != null
+                  ? DateFormat('dd/MM/yyyy HH:mm:ss').format(modFecha.toLocal())
+                  : '—';
+
+              return ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 140, maxWidth: 180),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      userText,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      dateText,
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 10,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         ),
       ],
