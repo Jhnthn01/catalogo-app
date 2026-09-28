@@ -78,6 +78,25 @@ class _CargaMasivaPageState extends State<CargaMasivaPage> {
           'stock'                    : 'stock',
           // Costo
           'costo'                    : 'costo',
+          // Último Costo
+          'ultimo costo'             : 'ultimo_costo',
+          'ultimo_costo'             : 'ultimo_costo',
+          'último costo'             : 'ultimo_costo',
+          'último_costo'             : 'ultimo_costo',
+          'ultimocosto'              : 'ultimo_costo',
+          // Fecha Último Costo
+          'fecha ultimo costo'       : 'fecha_ultimo_costo',
+          'fecha_ultimo_costo'       : 'fecha_ultimo_costo',
+          'fecha último costo'       : 'fecha_ultimo_costo',
+          'fecha del ultimo costo'   : 'fecha_ultimo_costo',
+          'fecha del último costo'   : 'fecha_ultimo_costo',
+          // Fecha Modificación
+          'fecha modificacion'       : 'modificado_at',
+          'fecha_modificacion'       : 'modificado_at',
+          'fecha modificación'       : 'modificado_at',
+          'fecha de modificacion'    : 'modificado_at',
+          'fecha de modificación'    : 'modificado_at',
+          'modificado'               : 'modificado_at',
         };
 
         // Normalizar headers aplicando alias
