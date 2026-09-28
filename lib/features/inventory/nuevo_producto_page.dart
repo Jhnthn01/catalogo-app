@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class NuevoProductoPage extends StatefulWidget {
-  const NuevoProductoPage({super.key});
+  final String? initialSku;
+  const NuevoProductoPage({super.key, this.initialSku});
 
   @override
   State<NuevoProductoPage> createState() => _NuevoProductoPageState();
@@ -25,10 +27,27 @@ class _NuevoProductoPageState extends State<NuevoProductoPage> {
   final TextEditingController _costoController = TextEditingController();
   final TextEditingController _precioVentaController = TextEditingController();
 
+  final MobileScannerController _scannerController = MobileScannerController();
+  bool _isScanningSku = false;
   bool _isLoading = false;
+  bool _isCheckingSku = false;
+  String? _skuExistenteNombre;
+  String? _ultimoSkuVerificado;
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.initialSku != null && widget.initialSku!.trim().isNotEmpty) {
+      _skuController.text = widget.initialSku!.trim();
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _verificarSkuExistente(_skuController.text.trim());
+      });
+    }
+  }
 
   @override
   void dispose() {
+    _scannerController.dispose();
     _skuController.dispose();
     _upcController.dispose();
     _aluController.dispose();
@@ -45,8 +64,118 @@ class _NuevoProductoPageState extends State<NuevoProductoPage> {
     super.dispose();
   }
 
+  Future<bool> _verificarSkuExistente(String sku) async {
+    final s = sku.trim();
+    if (s.isEmpty) {
+      if (mounted) {
+        setState(() {
+          _skuExistenteNombre = null;
+          _ultimoSkuVerificado = null;
+        });
+      }
+      return false;
+    }
+
+    if (s == _ultimoSkuVerificado && _skuExistenteNombre != null) {
+      _mostrarAlertaSkuDuplicado(s, _skuExistenteNombre!);
+      return true;
+    }
+
+    setState(() => _isCheckingSku = true);
+
+    try {
+      final res = await Supabase.instance.client
+          .from('productos')
+          .select('id, sku, descripcion_1')
+          .eq('sku', s)
+          .maybeSingle();
+
+      if (!mounted) return false;
+
+      _ultimoSkuVerificado = s;
+
+      if (res != null) {
+        final nombre = res['descripcion_1']?.toString() ?? 'Producto existente';
+        setState(() {
+          _skuExistenteNombre = nombre;
+        });
+        _mostrarAlertaSkuDuplicado(s, nombre);
+        return true;
+      } else {
+        setState(() {
+          _skuExistenteNombre = null;
+        });
+        return false;
+      }
+    } catch (e) {
+      debugPrint('Error al verificar SKU existente: $e');
+      return false;
+    } finally {
+      if (mounted) setState(() => _isCheckingSku = false);
+    }
+  }
+
+  void _mostrarAlertaSkuDuplicado(String sku, String nombreProducto) {
+    if (!mounted) return;
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Colors.amber, width: 1.5),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 26),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'SKU Ya Registrado',
+                style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: RichText(
+          text: TextSpan(
+            style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+            children: [
+              const TextSpan(text: 'El SKU '),
+              TextSpan(
+                text: '"$sku"',
+                style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold),
+              ),
+              const TextSpan(text: ' ya pertenece a otro producto en el inventario:\n\n'),
+              TextSpan(
+                text: '📦 $nombreProducto\n\n',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+              ),
+              const TextSpan(text: 'Por favor, ingresa un código SKU diferente para este producto.'),
+            ],
+          ),
+        ),
+        actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.amber,
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Entendido', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _guardarProducto() async {
     if (!_formKey.currentState!.validate()) return;
+
+    final String sku = _skuController.text.trim();
+    final bool yaExiste = await _verificarSkuExistente(sku);
+    if (yaExiste) return;
 
     setState(() => _isLoading = true);
 
@@ -56,7 +185,7 @@ class _NuevoProductoPageState extends State<NuevoProductoPage> {
 
       final nowIso = DateTime.now().toUtc().toIso8601String();
       await Supabase.instance.client.from('productos').insert({
-        'sku': _skuController.text.trim(),
+        'sku': sku,
         'upc': _upcController.text.trim().isEmpty ? null : _upcController.text.trim(),
         'alu': _aluController.text.trim().isEmpty ? null : _aluController.text.trim(),
         'marca': _marcaController.text.trim().isEmpty ? null : _marcaController.text.trim(),
@@ -93,6 +222,158 @@ class _NuevoProductoPageState extends State<NuevoProductoPage> {
     }
   }
 
+  Widget _buildScannerBox() {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      height: 200,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.blueAccent, width: 2),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(14),
+        child: Stack(
+          children: [
+            MobileScanner(
+              controller: _scannerController,
+              onDetect: (capture) {
+                final List<Barcode> barcodes = capture.barcodes;
+                if (barcodes.isNotEmpty) {
+                  final String code = (barcodes.first.rawValue ?? "").trim();
+                  if (code.isNotEmpty) {
+                    setState(() {
+                      _isScanningSku = false;
+                      _skuController.text = code;
+                    });
+                    _verificarSkuExistente(code);
+                  }
+                }
+              },
+            ),
+            Positioned(
+              left: 10,
+              top: 10,
+              child: CircleAvatar(
+                backgroundColor: Colors.black54,
+                child: ValueListenableBuilder<MobileScannerState>(
+                  valueListenable: _scannerController,
+                  builder: (context, state, child) {
+                    switch (state.torchState) {
+                      case TorchState.off:
+                        return IconButton(
+                          icon: const Icon(Icons.flash_off, color: Colors.white),
+                          onPressed: () => _scannerController.toggleTorch(),
+                        );
+                      case TorchState.on:
+                        return IconButton(
+                          icon: const Icon(Icons.flash_on, color: Colors.yellow),
+                          onPressed: () => _scannerController.toggleTorch(),
+                        );
+                      default:
+                        return const SizedBox.shrink();
+                    }
+                  },
+                ),
+              ),
+            ),
+            Positioned(
+              right: 10,
+              top: 10,
+              child: CircleAvatar(
+                backgroundColor: Colors.black54,
+                child: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () => setState(() => _isScanningSku = false),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSkuField() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextFormField(
+            controller: _skuController,
+            style: const TextStyle(color: Colors.white),
+            maxLength: 16,
+            onChanged: (val) {
+              if (_skuExistenteNombre != null) {
+                setState(() => _skuExistenteNombre = null);
+              }
+            },
+            decoration: InputDecoration(
+              labelText: 'SKU (Máx 16) *',
+              labelStyle: const TextStyle(color: Colors.white54),
+              filled: true,
+              fillColor: const Color(0xFF1E1E1E),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide.none,
+              ),
+              counterText: '',
+              suffixIcon: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_isCheckingSku)
+                    const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blueAccent),
+                      ),
+                    ),
+                  IconButton(
+                    icon: Icon(
+                      _isScanningSku ? Icons.close : Icons.qr_code_scanner,
+                      color: _isScanningSku ? Colors.redAccent : Colors.blueAccent,
+                    ),
+                    tooltip: _isScanningSku ? 'Cerrar escáner' : 'Escanear SKU con cámara',
+                    onPressed: () {
+                      setState(() => _isScanningSku = !_isScanningSku);
+                    },
+                  ),
+                ],
+              ),
+            ),
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Este campo es obligatorio';
+              }
+              if (_skuExistenteNombre != null) {
+                return 'SKU ya registrado para: $_skuExistenteNombre';
+              }
+              return null;
+            },
+          ),
+          if (_skuExistenteNombre != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6, left: 4),
+              child: Row(
+                children: [
+                  const Icon(Icons.warning_amber_rounded, color: Colors.amber, size: 16),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'SKU en uso por: $_skuExistenteNombre',
+                      style: const TextStyle(color: Colors.amberAccent, fontSize: 12, fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildField(String label, TextEditingController controller, {bool isRequired = false, bool isNumeric = false, int maxLength = 255}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16.0),
@@ -110,7 +391,7 @@ class _NuevoProductoPageState extends State<NuevoProductoPage> {
             borderRadius: BorderRadius.circular(10),
             borderSide: BorderSide.none,
           ),
-          counterText: '', // Ocultar contador de caracteres si no es necesario
+          counterText: '',
         ),
         validator: isRequired
             ? (value) {
@@ -140,7 +421,8 @@ class _NuevoProductoPageState extends State<NuevoProductoPage> {
                 key: _formKey,
                 child: Column(
                   children: [
-                    _buildField('SKU (Máx 16)', _skuController, isRequired: true, maxLength: 16),
+                    if (_isScanningSku) _buildScannerBox(),
+                    _buildSkuField(),
                     _buildField('Descripción Principal', _descripcion1Controller, isRequired: true),
                     
                     const Divider(color: Colors.white24, height: 40),

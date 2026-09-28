@@ -199,8 +199,7 @@ class _TablaDetalladaInventarioScreenState
         if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
 
         const limit = 99;
-        final List<dynamic> data = await query
-            .order('descripcion_1')
+        final List<dynamic> data = await _aplicarOrdenServidor(query)
             .range(0, limit);
 
         lista = List<Map<String, dynamic>>.from(data);
@@ -226,6 +225,32 @@ class _TablaDetalladaInventarioScreenState
           ),
         );
       }
+    }
+  }
+
+  /// Aplica el ordenamiento de servidor en Supabase según la columna activa
+  dynamic _aplicarOrdenServidor(dynamic query) {
+    switch (_sortColumnIndex) {
+      case 0: // SKU
+        return query.order('sku', ascending: _sortAscending);
+      case 1: // Producto
+        return query.order('descripcion_1', ascending: _sortAscending);
+      case 2: // Categoría
+        return query.order('categoria', ascending: _sortAscending);
+      case 3: // Stock Total
+        return query.order('stock', referencedTable: 'inventario', ascending: _sortAscending, nullsFirst: false);
+      case 4: // Último Costo
+        return query.order('ultimo_costo', ascending: _sortAscending, nullsFirst: false);
+      case 5: // Costo Medio
+        return query.order('costo_medio', ascending: _sortAscending, nullsFirst: false);
+      case 6: // Precio Venta
+        return query.order('precio_venta', ascending: _sortAscending, nullsFirst: false);
+      case 10: // Ficha Modificada
+        return query.order('modificado_at', ascending: _sortAscending, nullsFirst: false);
+      case 11: // Último Movimiento
+        return query.order('actualizado_at', referencedTable: 'inventario', ascending: _sortAscending, nullsFirst: false);
+      default:
+        return query.order('descripcion_1', ascending: _sortAscending);
     }
   }
 
@@ -261,8 +286,7 @@ class _TablaDetalladaInventarioScreenState
       if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
 
       const int limit = 100;
-      final List<dynamic> data = await query
-          .order('descripcion_1')
+      final List<dynamic> data = await _aplicarOrdenServidor(query)
           .range(offset, offset + limit - 1);
 
       if (!mounted) return;
@@ -363,31 +387,33 @@ class _TablaDetalladaInventarioScreenState
       for (final p in lista) {
         final pid = p['id']?.toString();
 
-        DateTime? mejorFecha;
-        String? mejorUsuario;
-
-        // 1. productos.modificado_at & productos.modificado_por
+        // ── 1. MODIFICACIÓN DE FICHA DE PRODUCTO (Catálogo maestro) ───────────
         if (p['modificado_at'] != null) {
-          final f = DateTime.tryParse(p['modificado_at'].toString());
-          if (f != null) {
-            mejorFecha = f;
-            final uid = p['modificado_por']?.toString();
-            mejorUsuario = (uid != null && userNames.containsKey(uid)) ? userNames[uid] : null;
+          p['ficha_modificado_at'] = p['modificado_at'].toString();
+          final uid = p['modificado_por']?.toString();
+          if (uid != null && userNames.containsKey(uid)) {
+            p['ficha_modificado_usuario'] = userNames[uid];
           }
         }
 
-        // 2. kardex_movimientos
+        // ── 2. ÚLTIMO MOVIMIENTO DE STOCK (Kardex / Venta / Compra) ───────────
+        DateTime? movFecha;
+        String? movUsuario;
+
+        // Desde Kardex
         if (pid != null && ultimosMovs.containsKey(pid)) {
           final mov = ultimosMovs[pid]!;
           final f = DateTime.tryParse(mov['created_at']?.toString() ?? '');
-          if (f != null && (mejorFecha == null || f.isAfter(mejorFecha))) {
-            mejorFecha = f;
+          if (f != null) {
+            movFecha = f;
             final uid = mov['usuario_id']?.toString();
-            mejorUsuario = (uid != null && userNames.containsKey(uid)) ? userNames[uid] : null;
+            if (uid != null && userNames.containsKey(uid)) {
+              movUsuario = userNames[uid];
+            }
           }
         }
 
-        // 3. inventario actualizado_at / usuario_id
+        // Fallback desde inventario actualizado_at si no hay kardex o si es más reciente
         final inv = p['inventario'];
         Map? invMap;
         if (inv is List && inv.isNotEmpty && inv.first is Map) {
@@ -397,21 +423,25 @@ class _TablaDetalladaInventarioScreenState
         }
         if (invMap != null && invMap['actualizado_at'] != null) {
           final f = DateTime.tryParse(invMap['actualizado_at'].toString());
-          if (f != null && (mejorFecha == null || f.isAfter(mejorFecha))) {
-            mejorFecha = f;
+          if (f != null && (movFecha == null || f.isAfter(movFecha))) {
+            movFecha = f;
             final uid = invMap['usuario_id']?.toString();
             if (uid != null && userNames.containsKey(uid)) {
-              mejorUsuario = userNames[uid];
+              movUsuario = userNames[uid];
             }
           }
         }
 
-        if (mejorFecha != null) {
-          p['modificado_fecha'] = mejorFecha.toIso8601String();
+        if (movFecha != null) {
+          p['ultimo_movimiento_at'] = movFecha.toIso8601String();
         }
-        if (mejorUsuario != null) {
-          p['modificado_usuario'] = mejorUsuario;
+        if (movUsuario != null) {
+          p['ultimo_movimiento_usuario'] = movUsuario;
         }
+
+        // Compatibilidad previa
+        p['modificado_fecha'] = p['ficha_modificado_at'] ?? p['ultimo_movimiento_at'];
+        p['modificado_usuario'] = p['ficha_modificado_usuario'] ?? p['ultimo_movimiento_usuario'];
 
         // Resolver fecha de último costo si aún no está asignada
         if (p['fecha_ultimo_costo'] == null) {
@@ -423,9 +453,8 @@ class _TablaDetalladaInventarioScreenState
         }
       }
 
-      if (mounted) {
-        setState(() {});
-      }
+      if (!mounted) return;
+      setState(() {});
     } catch (e) {
       debugPrint('Error al enriquecer modificado en inventario: $e');
     }
@@ -542,9 +571,13 @@ class _TablaDetalladaInventarioScreenState
           valA = _calcularMargen(a);
           valB = _calcularMargen(b);
           break;
-        case 10: // MODIFICADO
-          valA = a['modificado_fecha']?.toString() ?? '';
-          valB = b['modificado_fecha']?.toString() ?? '';
+        case 10: // Ficha Modificada
+          valA = a['ficha_modificado_at']?.toString() ?? a['modificado_at']?.toString() ?? '';
+          valB = b['ficha_modificado_at']?.toString() ?? b['modificado_at']?.toString() ?? '';
+          break;
+        case 11: // Último Movimiento
+          valA = a['ultimo_movimiento_at']?.toString() ?? '';
+          valB = b['ultimo_movimiento_at']?.toString() ?? '';
           break;
         default:
           valA = (a['descripcion_1'] ?? '').toString().toLowerCase();
@@ -1118,7 +1151,13 @@ class _TablaDetalladaInventarioScreenState
                                 label: Text('Acciones', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
                               ),
                               DataColumn(
-                                label: const Text('Modificado', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                label: const Text('Ficha Modif.', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                tooltip: 'Última modificación de datos maestros del producto',
+                                onSort: (idx, asc) => _onSort(idx, asc),
+                              ),
+                              DataColumn(
+                                label: const Text('Último Mov.', style: TextStyle(color: Colors.tealAccent, fontWeight: FontWeight.bold)),
+                                tooltip: 'Último movimiento de stock (Venta, Compra, Kardex)',
                                 onSort: (idx, asc) => _onSort(idx, asc),
                               ),
                             ],
@@ -1178,8 +1217,15 @@ class _TablaDetalladaInventarioScreenState
     setState(() {
       _sortColumnIndex = columnIndex;
       _sortAscending = ascending;
-      _ordenarLista();
     });
+
+    if (_searchQuery.trim().isEmpty) {
+      _cargarProductos();
+    } else {
+      setState(() {
+        _ordenarLista();
+      });
+    }
   }
 }
 
@@ -1230,6 +1276,7 @@ class _InventarioDataTableSource extends DataTableSource {
           DataCell(Text('—', style: TextStyle(color: Colors.grey))),
           DataCell(Text('—', style: TextStyle(color: Colors.grey))),
           DataCell(SizedBox.shrink()),
+          DataCell(Text('—', style: TextStyle(color: Colors.grey))),
           DataCell(Text('—', style: TextStyle(color: Colors.grey))),
         ],
       );
@@ -1435,27 +1482,20 @@ class _InventarioDataTableSource extends DataTableSource {
             onPressed: () => onEdit(prod),
           ),
         ),
-        // MODIFICADO (Usuario en línea 1, Fecha/Hora en línea 2)
+        // FICHA MODIFICADA (Usuario en línea 1, Fecha/Hora en línea 2)
         DataCell(
           Builder(
             builder: (context) {
-              final String? uName = prod['modificado_usuario']?.toString();
+              final String? uName = prod['ficha_modificado_usuario']?.toString();
               final String userText = (uName != null && uName.trim().isNotEmpty)
                   ? uName.trim().toUpperCase()
                   : '—';
 
               DateTime? modFecha;
-              if (prod['modificado_fecha'] != null) {
-                modFecha = DateTime.tryParse(prod['modificado_fecha'].toString());
-              } else {
-                final inv = prod['inventario'];
-                if (inv is List && inv.isNotEmpty && inv.first is Map && inv.first['actualizado_at'] != null) {
-                  modFecha = DateTime.tryParse(inv.first['actualizado_at'].toString());
-                } else if (inv is Map && inv['actualizado_at'] != null) {
-                  modFecha = DateTime.tryParse(inv['actualizado_at'].toString());
-                } else if (prod['created_at'] != null) {
-                  modFecha = DateTime.tryParse(prod['created_at'].toString());
-                }
+              if (prod['ficha_modificado_at'] != null) {
+                modFecha = DateTime.tryParse(prod['ficha_modificado_at'].toString());
+              } else if (prod['modificado_at'] != null) {
+                modFecha = DateTime.tryParse(prod['modificado_at'].toString());
               }
 
               final String dateText = modFecha != null
@@ -1463,7 +1503,7 @@ class _InventarioDataTableSource extends DataTableSource {
                   : '—';
 
               return ConstrainedBox(
-                constraints: const BoxConstraints(minWidth: 140, maxWidth: 180),
+                constraints: const BoxConstraints(minWidth: 130, maxWidth: 170),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1472,6 +1512,61 @@ class _InventarioDataTableSource extends DataTableSource {
                       userText,
                       style: const TextStyle(
                         color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      dateText,
+                      style: const TextStyle(
+                        color: Colors.white60,
+                        fontSize: 10,
+                        fontFamily: 'monospace',
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        // ÚLTIMO MOVIMIENTO (Usuario en línea 1, Fecha/Hora en línea 2)
+        DataCell(
+          Builder(
+            builder: (context) {
+              final String? uName = prod['ultimo_movimiento_usuario']?.toString();
+              final String userText = (uName != null && uName.trim().isNotEmpty)
+                  ? uName.trim().toUpperCase()
+                  : '—';
+
+              DateTime? movFecha;
+              if (prod['ultimo_movimiento_at'] != null) {
+                movFecha = DateTime.tryParse(prod['ultimo_movimiento_at'].toString());
+              } else {
+                final inv = prod['inventario'];
+                if (inv is List && inv.isNotEmpty && inv.first is Map && inv.first['actualizado_at'] != null) {
+                  movFecha = DateTime.tryParse(inv.first['actualizado_at'].toString());
+                } else if (inv is Map && inv['actualizado_at'] != null) {
+                  movFecha = DateTime.tryParse(inv['actualizado_at'].toString());
+                }
+              }
+
+              final String dateText = movFecha != null
+                  ? DateFormat('dd/MM/yyyy HH:mm:ss').format(movFecha.toLocal())
+                  : '—';
+
+              return ConstrainedBox(
+                constraints: const BoxConstraints(minWidth: 130, maxWidth: 170),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      userText,
+                      style: const TextStyle(
+                        color: Colors.amberAccent,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),

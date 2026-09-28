@@ -400,7 +400,7 @@ class _InventarioPageState extends State<InventarioPage> {
       while (hasMore) {
         final List<dynamic> response = await Supabase.instance.client
             .from('inventario')
-            .select('stock, tiendas(nombre), productos(sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta)')
+            .select('stock, actualizado_at, tiendas(nombre), productos(sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, fecha_ultimo_costo, modificado_at, created_at)')
             .eq('tienda_id', tiendaIdSeleccionada!)
             .range(offset, offset + limit - 1);
 
@@ -425,10 +425,58 @@ class _InventarioPageState extends State<InventarioPage> {
       final String nombreTienda = allRows.first['tiendas']?['nombre'] ?? 'tienda';
       
       List<List<dynamic>> rows = [];
-      rows.add(['SKU', 'UPC', 'ALU', 'Marca', 'Categoria', 'Clase', 'Subclase', 'Estilo', 'Descripcion', 'Descripcion_2', 'Color', 'Costo', 'Precio', 'Stock', 'Tienda']);
+      rows.add([
+        'SKU',
+        'UPC',
+        'ALU',
+        'Marca',
+        'Categoria',
+        'Clase',
+        'Subclase',
+        'Estilo',
+        'Descripcion',
+        'Descripcion_2',
+        'Color',
+        'Costo',
+        'Ultimo Costo',
+        'Fecha Ultimo Costo',
+        'Precio',
+        'Stock',
+        'Tienda',
+        'Fecha Modificacion',
+      ]);
       
       for (var row in allRows) {
         final p = row['productos'] ?? {};
+
+        final double ultimoCosto = double.tryParse(p['ultimo_costo']?.toString() ?? '') ??
+            double.tryParse(p['costo']?.toString() ?? '') ??
+            0.0;
+
+        DateTime? fechaCosto;
+        if (p['fecha_ultimo_costo'] != null) {
+          fechaCosto = DateTime.tryParse(p['fecha_ultimo_costo'].toString());
+        } else if (p['ultimo_costo_at'] != null) {
+          fechaCosto = DateTime.tryParse(p['ultimo_costo_at'].toString());
+        } else if (p['created_at'] != null && (double.tryParse(p['ultimo_costo']?.toString() ?? '') ?? 0) > 0) {
+          fechaCosto = DateTime.tryParse(p['created_at'].toString());
+        }
+        final String fechaCostoStr = fechaCosto != null
+            ? DateFormat('dd/MM/yyyy HH:mm:ss').format(fechaCosto.toLocal())
+            : '';
+
+        DateTime? modFecha;
+        if (p['modificado_at'] != null) {
+          modFecha = DateTime.tryParse(p['modificado_at'].toString());
+        } else if (row['actualizado_at'] != null) {
+          modFecha = DateTime.tryParse(row['actualizado_at'].toString());
+        } else if (p['created_at'] != null) {
+          modFecha = DateTime.tryParse(p['created_at'].toString());
+        }
+        final String fechaModStr = modFecha != null
+            ? DateFormat('dd/MM/yyyy HH:mm:ss').format(modFecha.toLocal())
+            : '';
+
         rows.add([
           p['sku'] ?? '',
           p['upc'] ?? '',
@@ -442,9 +490,12 @@ class _InventarioPageState extends State<InventarioPage> {
           p['descripcion_2'] ?? '',
           p['color'] ?? '',
           p['costo'] ?? 0,
+          ultimoCosto,
+          fechaCostoStr,
           p['precio_venta'] ?? 0,
           row['stock'] ?? 0,
-          nombreTienda
+          nombreTienda,
+          fechaModStr,
         ]);
       }
       
