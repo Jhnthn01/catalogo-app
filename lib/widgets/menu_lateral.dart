@@ -5,6 +5,7 @@ import 'package:catalogo_digital_app/features/inventory/inventario_page.dart';
 import 'package:catalogo_digital_app/features/inventory/kardex_screen.dart';
 import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
 import 'package:catalogo_digital_app/features/inventory/validar_ajustes_page.dart';
+import 'package:catalogo_digital_app/features/inventory/toma_inventario_page.dart';
 import 'package:catalogo_digital_app/features/orders/mis_pedidos_page.dart';
 import 'package:catalogo_digital_app/features/orders/pedidos_entregados_page.dart';
 import 'package:catalogo_digital_app/features/orders/pedidos_cancelados_page.dart';
@@ -315,6 +316,26 @@ class _MenuLateralState extends State<MenuLateral> {
                       context,
                       MaterialPageRoute(
                         builder: (context) => const CargaMasivaPage(),
+                      ),
+                    );
+                  },
+                ),
+              if (tieneAccesoInventario)
+                ListTile(
+                  leading: const Icon(
+                    Icons.checklist_rtl_rounded,
+                    color: Colors.cyanAccent,
+                  ),
+                  title: const Text(
+                    'Toma de inventario',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const TomaInventarioPage(),
                       ),
                     );
                   },
