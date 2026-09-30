@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:catalogo_digital_app/services/tienda_service.dart';
+import 'package:catalogo_digital_app/services/toma_inventario_service.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
+import 'package:catalogo_digital_app/widgets/toma_progreso_card.dart';
 import 'package:catalogo_digital_app/features/inventory/conteo_toma_page.dart';
 
 class TomaInventarioPage extends StatefulWidget {
@@ -61,6 +63,30 @@ class _TomaInventarioPageState extends State<TomaInventarioPage> {
         throw Exception('No se recibió un ID de toma válido desde el servidor.');
       }
 
+      final tiendaMap = TiendaService().tiendas.cast<Map<String, dynamic>?>().firstWhere(
+        (t) => t?['id'] == tiendaId,
+        orElse: () => null,
+      );
+      final tiendaNombre = tiendaMap?['nombre'] as String? ?? 'Tienda #$tiendaId';
+
+      final alcanceStr = _alcanceCompleto
+          ? 'Toda la Tienda'
+          : [
+              if (_catSeleccionada != null) 'Cat: $_catSeleccionada',
+              if (_claseSeleccionada != null) 'Clase: $_claseSeleccionada',
+              if (_subClaseSeleccionada != null) 'Sub: $_subClaseSeleccionada',
+            ].join(' > ');
+
+      TomaInventarioService().iniciarSesion(
+        tomaId: tomaId,
+        tiendaId: tiendaId,
+        tiendaNombre: tiendaNombre,
+        alcanceTexto: alcanceStr.isEmpty ? 'Por Jerarquía' : alcanceStr,
+        categoria: _catSeleccionada,
+        clase: _claseSeleccionada,
+        subClase: _subClaseSeleccionada,
+      );
+
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Toma de inventario iniciada correctamente'),
@@ -115,6 +141,11 @@ class _TomaInventarioPageState extends State<TomaInventarioPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            // ── 0. Tarjeta de Toma Activa si existe en memoria ───────────────
+            const TomaProgresoCard(
+              margin: EdgeInsets.only(bottom: 20),
+            ),
+
             // ── 1. Tarjeta de Tienda Activa ─────────────────────────────────
             Card(
               color: const Color(0xFF1E1E1E),

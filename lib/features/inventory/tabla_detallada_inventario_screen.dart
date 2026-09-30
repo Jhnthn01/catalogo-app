@@ -8,6 +8,7 @@ import 'package:catalogo_digital_app/features/inventory/nuevo_producto_page.dart
 import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
 import 'package:catalogo_digital_app/widgets/buscador_productos_widget.dart';
+import 'package:catalogo_digital_app/widgets/toma_progreso_card.dart';
 import 'package:catalogo_digital_app/services/tienda_service.dart';
 
 class TablaDetalladaInventarioScreen extends StatefulWidget {
@@ -675,6 +676,9 @@ class _TablaDetalladaInventarioScreenState
       color: const Color(0xFF121212),
       child: Column(
         children: [
+          // ── Tarjeta de Toma de Inventario en Progreso ─────────────────────
+          const TomaProgresoCard(margin: EdgeInsets.fromLTRB(16, 12, 16, 4)),
+
           // ── Resumen KPI para Escritorio ──────────────────────────────────
           _buildTarjetasKpi(),
 

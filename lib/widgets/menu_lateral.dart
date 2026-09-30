@@ -14,6 +14,7 @@ import 'package:catalogo_digital_app/features/admin/gestion_roles_page.dart';
 import 'package:catalogo_digital_app/features/abastecimiento/ordenes_compra_dashboard_screen.dart';
 import 'package:catalogo_digital_app/features/abastecimiento/gestion_proveedores_page.dart';
 import 'package:catalogo_digital_app/services/tienda_service.dart';
+import 'package:catalogo_digital_app/services/toma_inventario_service.dart';
 import 'package:catalogo_digital_app/services/update_service.dart';
 
 class MenuLateral extends StatefulWidget {
@@ -321,22 +322,57 @@ class _MenuLateralState extends State<MenuLateral> {
                   },
                 ),
               if (tieneAccesoInventario)
-                ListTile(
-                  leading: const Icon(
-                    Icons.checklist_rtl_rounded,
-                    color: Colors.cyanAccent,
-                  ),
-                  title: const Text(
-                    'Toma de inventario',
-                    style: TextStyle(color: Colors.white),
-                  ),
-                  onTap: () {
-                    Navigator.pop(context);
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const TomaInventarioPage(),
+                ValueListenableBuilder<TomaActivaSesion?>(
+                  valueListenable: TomaInventarioService().sesionActiva,
+                  builder: (context, sesion, child) {
+                    final bool enProgreso = sesion != null;
+                    return ListTile(
+                      leading: Icon(
+                        Icons.checklist_rtl_rounded,
+                        color: enProgreso ? Colors.tealAccent : Colors.cyanAccent,
                       ),
+                      title: Row(
+                        children: [
+                          const Text(
+                            'Toma de inventario',
+                            style: TextStyle(color: Colors.white),
+                          ),
+                          if (enProgreso) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.tealAccent.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.5)),
+                              ),
+                              child: Text(
+                                '${sesion.totalContados} cont.',
+                                style: const TextStyle(
+                                  color: Colors.tealAccent,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                      subtitle: enProgreso
+                          ? Text(
+                              'En progreso: ${sesion.tiendaNombre}',
+                              style: const TextStyle(color: Colors.tealAccent, fontSize: 11),
+                            )
+                          : null,
+                      onTap: () {
+                        Navigator.pop(context);
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const TomaInventarioPage(),
+                          ),
+                        );
+                      },
                     );
                   },
                 ),
