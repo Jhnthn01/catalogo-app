@@ -3,6 +3,7 @@ import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:catalogo_digital_app/features/inventory/nuevo_producto_page.dart';
+import 'package:catalogo_digital_app/features/inventory/revision_toma_page.dart';
 import 'package:catalogo_digital_app/services/toma_inventario_service.dart';
 
 class ConteoTomaPage extends StatefulWidget {
@@ -360,12 +361,18 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Toma de inventario cerrada correctamente. Lista para validación.'),
+          content: Text('Toma de inventario cerrada. Abriendo panel de revisión y discrepancias...'),
           backgroundColor: Colors.green,
         ),
       );
 
-      Navigator.pop(context, true);
+      // Redirigir a la pantalla de revisión y auditoría
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RevisionTomaPage(tomaId: widget.tomaId),
+        ),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
