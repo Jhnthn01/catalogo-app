@@ -158,11 +158,24 @@ class _KardexScreenState extends State<KardexScreen> {
       }
 
       final List<dynamic> res =
-          await query.order('created_at', ascending: false).limit(500);
+          await query.order('created_at', ascending: true).limit(500);
 
-      final list = res
+      var list = res
           .map((j) => KardexMovimiento.fromJson(Map<String, dynamic>.from(j)))
           .toList();
+
+      // Ordenar del menor al mayor por el correlativo numérico del ID
+      // Formato nuevo: AAAAmmdd-COD.CENTRO-00000000001
+      // Si el ID tiene ese formato, el correlativo es la última parte.
+      list.sort((a, b) {
+        int corrA = _extraerCorrelativoId(a.id?.toString() ?? '');
+        int corrB = _extraerCorrelativoId(b.id?.toString() ?? '');
+        if (corrA != corrB) return corrA.compareTo(corrB);
+        // Tiebreaker: created_at
+        final ta = a.createdAt ?? DateTime(2000);
+        final tb = b.createdAt ?? DateTime(2000);
+        return ta.compareTo(tb);
+      });
 
       // Enriquecer con nombres de usuario desde public.perfiles
       final userIds =
@@ -1258,8 +1271,26 @@ class _KardexScreenState extends State<KardexScreen> {
     );
   }
 
+  /// Extrae el número de correlativo del ID de kardex.
+  /// Formato esperado: AAAAmmdd-COD.CENTRO-00000000001  → 1
+  /// Si no coincide (UUID legacy u otro), devuelve 0.
+  int _extraerCorrelativoId(String id) {
+    if (id.isEmpty) return 0;
+    final partes = id.split('-');
+    if (partes.length >= 3) {
+      return int.tryParse(partes.last) ?? 0;
+    }
+    return 0;
+  }
+
   String _truncarId(String id) {
-    if (id.length > 8) return '${id.substring(0, 8)}…';
+    if (id.isEmpty) return '—';
+    // UUID legacy (36 chars): mostrar primeros 8 para no ocupar espacio
+    if (id.length >= 36 &&
+        RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-').hasMatch(id)) {
+      return '${id.substring(0, 8)}…';
+    }
+    // Nuevo formato AAAAmmdd-COD.CENTRO-00000000001: mostrar completo
     return id;
   }
 }

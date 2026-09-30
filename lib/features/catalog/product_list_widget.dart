@@ -7,6 +7,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:catalogo_digital_app/services/tienda_service.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
 import 'package:catalogo_digital_app/widgets/buscador_productos_widget.dart';
+import 'package:catalogo_digital_app/widgets/toma_progreso_card.dart';
 import 'package:catalogo_digital_app/features/catalog/detalle_producto_page.dart';
 import 'package:catalogo_digital_app/features/inventory/nuevo_producto_page.dart';
 
@@ -311,6 +312,11 @@ class ProductListWidgetState extends State<ProductListWidget> {
             child: CustomScrollView(
               controller: _scrollController,
               slivers: [
+                // Active Toma de Inventario banner if in progress
+                const SliverToBoxAdapter(
+                  child: TomaProgresoCard(margin: EdgeInsets.fromLTRB(16, 12, 16, 4)),
+                ),
+
                 // Search bar or scanner
                 SliverToBoxAdapter(
                   child: AnimatedSwitcher(

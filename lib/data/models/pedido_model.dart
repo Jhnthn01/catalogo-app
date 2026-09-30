@@ -8,6 +8,7 @@ class PedidoModel {
   final String? tipoDocumento;
   final String? numeroDocumento;
   final String? tipoComprobante;
+  final String? numeroComprobante;
   final String? formaPago;
   final String? estado;
   final double total;
@@ -25,6 +26,7 @@ class PedidoModel {
     this.tipoDocumento,
     this.numeroDocumento,
     this.tipoComprobante,
+    this.numeroComprobante,
     this.formaPago,
     this.estado,
     this.total = 0.0,
@@ -44,6 +46,7 @@ class PedidoModel {
       tipoDocumento: json['tipo_documento']?.toString(),
       numeroDocumento: json['numero_documento']?.toString(),
       tipoComprobante: json['tipo_comprobante']?.toString(),
+      numeroComprobante: json['numero_comprobante']?.toString(),
       formaPago: json['forma_pago']?.toString(),
       estado: json['estado']?.toString(),
       total: num.tryParse(json['total']?.toString() ?? '0')?.toDouble() ?? 0.0,
@@ -64,6 +67,7 @@ class PedidoModel {
       'tipo_documento': tipoDocumento,
       'numero_documento': numeroDocumento,
       'tipo_comprobante': tipoComprobante,
+      'numero_comprobante': numeroComprobante,
       'forma_pago': formaPago,
       'estado': estado,
       'total': total,

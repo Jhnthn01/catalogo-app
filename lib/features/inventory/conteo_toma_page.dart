@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
+import 'package:catalogo_digital_app/features/inventory/nuevo_producto_page.dart';
+import 'package:catalogo_digital_app/features/inventory/revision_toma_page.dart';
+import 'package:catalogo_digital_app/services/toma_inventario_service.dart';
 
 class ConteoTomaPage extends StatefulWidget {
   final String tomaId;
@@ -59,6 +62,7 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
       setState(() {
         _productosContados = List<Map<String, dynamic>>.from(data);
       });
+      TomaInventarioService().actualizarProgreso(totalContados: _productosContados.length);
     } catch (e) {
       debugPrint('Error al cargar productos contados: $e');
     } finally {
@@ -99,12 +103,71 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
         if (!mounted) return;
 
         if (listMatch.isEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('No se encontró ningún producto con el código: "$q"'),
-              backgroundColor: Colors.orangeAccent,
+          final bool? deseaCrear = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: const Color(0xFF1E1E1E),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(color: Colors.blueAccent, width: 1.5),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.inventory_2_outlined, color: Colors.blueAccent, size: 28),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Producto no encontrado',
+                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              content: RichText(
+                text: TextSpan(
+                  style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+                  children: [
+                    const TextSpan(text: 'No se encontró ningún producto con el código SKU / Barcode:\n\n'),
+                    TextSpan(
+                      text: '🏷️ $q\n\n',
+                      style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                    const TextSpan(text: '¿Deseas registrar este nuevo producto ahora para incluirlo en la toma?'),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx, false),
+                  child: const Text('Cancelar', style: TextStyle(color: Colors.white60)),
+                ),
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blueAccent,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  ),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Crear Producto', style: TextStyle(fontWeight: FontWeight.bold)),
+                  onPressed: () => Navigator.pop(ctx, true),
+                ),
+              ],
             ),
           );
+
+          if (deseaCrear == true && mounted) {
+            final bool? creado = await Navigator.push<bool>(
+              context,
+              MaterialPageRoute(
+                builder: (context) => NuevoProductoPage(initialSku: q),
+              ),
+            );
+
+            if (creado == true && mounted) {
+              _searchController.text = q;
+              _buscarProducto(q);
+            }
+          }
         } else if (listMatch.length == 1) {
           _seleccionarProducto(Map<String, dynamic>.from(listMatch.first));
         } else {
@@ -292,16 +355,24 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
         'p_toma_id': widget.tomaId,
       });
 
+      TomaInventarioService().finalizarSesion();
+
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Toma de inventario cerrada correctamente. Lista para validación.'),
+          content: Text('Toma de inventario cerrada. Abriendo panel de revisión y discrepancias...'),
           backgroundColor: Colors.green,
         ),
       );
 
-      Navigator.pop(context, true);
+      // Redirigir a la pantalla de revisión y auditoría
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RevisionTomaPage(tomaId: widget.tomaId),
+        ),
+      );
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

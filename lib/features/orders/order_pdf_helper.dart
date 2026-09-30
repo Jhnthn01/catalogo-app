@@ -104,7 +104,9 @@ class OrderPdfHelper {
                         ),
                         pw.SizedBox(height: 6),
                         pw.Text(
-                          "Nº #$idCorto",
+                          pedido['numero_comprobante'] != null && pedido['numero_comprobante'].toString().isNotEmpty
+                              ? pedido['numero_comprobante'].toString()
+                              : "Nº #$idCorto",
                           style: pw.TextStyle(
                             fontSize: 12,
                             fontWeight: pw.FontWeight.bold,
@@ -362,7 +364,12 @@ class OrderPdfHelper {
                       pedido['tipo_comprobante']?.toString().toUpperCase() ?? "PROFORMA",
                       style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold),
                     ),
-                    pw.Text("ID: #$idCorto", style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold)),
+                    pw.Text(
+                      pedido['numero_comprobante'] != null && pedido['numero_comprobante'].toString().isNotEmpty
+                          ? "Nº: ${pedido['numero_comprobante']}"
+                          : "ID: #$idCorto",
+                      style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold),
+                    ),
                     pw.Text("--------------------------------", style: pw.TextStyle(fontSize: 9)),
                   ],
                 ),

@@ -17,6 +17,7 @@ import 'package:catalogo_digital_app/features/inventory/carga_masiva_page.dart';
 import 'package:catalogo_digital_app/features/catalog/detalle_producto_page.dart';
 import 'package:catalogo_digital_app/widgets/filtros_jerarquia.dart';
 import 'package:catalogo_digital_app/widgets/buscador_productos_widget.dart';
+import 'package:catalogo_digital_app/widgets/toma_progreso_card.dart';
 import 'package:catalogo_digital_app/features/inventory/tabla_detallada_inventario_screen.dart';
 import 'package:catalogo_digital_app/features/inventory/kardex_screen.dart';
 
@@ -652,6 +653,7 @@ class _InventarioPageState extends State<InventarioPage> {
       ),
       body: Column(
         children: [
+          const TomaProgresoCard(margin: EdgeInsets.fromLTRB(12, 8, 12, 4)),
           AnimatedSwitcher(
             duration: const Duration(milliseconds: 300),
             child: _isScanning
