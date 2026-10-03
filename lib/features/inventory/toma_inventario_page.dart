@@ -158,6 +158,114 @@ class _TomaInventarioPageState extends State<TomaInventarioPage> with SingleTick
     }
   }
 
+  /// Elimina una toma que está en estado 'conteo' y no tiene productos contados.
+  Future<void> _eliminarToma(String tomaId) async {
+    // Verificar que no tenga conteos registrados
+    try {
+      final List<dynamic> conteos = await _supabase
+          .from('tomas_inventario_detalle')
+          .select('id')
+          .eq('toma_id', tomaId)
+          .not('cantidad_contada', 'is', null)
+          .limit(1);
+
+      if (!mounted) return;
+
+      if (conteos.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No se puede eliminar: esta toma ya tiene productos contados. Cancélala desde la pantalla de revisión.'),
+            backgroundColor: Colors.orangeAccent,
+            duration: Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+    } catch (e) {
+      debugPrint('Error al verificar conteos: $e');
+    }
+
+    // Confirmar eliminación
+    final bool? confirmar = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1E1E),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Colors.redAccent, width: 1.5),
+        ),
+        title: const Row(
+          children: [
+            Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 26),
+            SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Eliminar toma vacía',
+                style: TextStyle(color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: const Text(
+          'Esta toma no tiene ningún producto contado.\n\n¿Deseas eliminarla del historial?',
+          style: TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancelar', style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            ),
+            icon: const Icon(Icons.delete_forever_rounded, size: 18),
+            label: const Text('Eliminar', style: TextStyle(fontWeight: FontWeight.bold)),
+            onPressed: () => Navigator.pop(ctx, true),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true || !mounted) return;
+
+    try {
+      // Eliminar primero los detalles (aunque estén vacíos, por FK)
+      await _supabase
+          .from('tomas_inventario_detalle')
+          .delete()
+          .eq('toma_id', tomaId);
+
+      // Eliminar la toma principal
+      await _supabase
+          .from('tomas_inventario')
+          .delete()
+          .eq('id', tomaId);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Toma eliminada del historial.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+
+      _cargarHistorial();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al eliminar toma: $e'),
+            backgroundColor: Colors.redAccent,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final int pendientesCount = _historialTomas
@@ -612,26 +720,47 @@ class _TomaInventarioPageState extends State<TomaInventarioPage> with SingleTick
 
                   // ── Botón de Acción según Estado ──────────────────────────
                   if (estado == 'conteo' || estado == 'en_proceso')
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.tealAccent.shade700,
-                          foregroundColor: Colors.white,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        icon: const Icon(Icons.play_arrow_rounded, size: 18),
-                        label: const Text('CONTINUAR CONTEO', style: TextStyle(fontWeight: FontWeight.bold)),
-                        onPressed: () async {
-                          await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ConteoTomaPage(tomaId: tomaId),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.tealAccent.shade700,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                             ),
-                          );
-                          _cargarHistorial();
-                        },
-                      ),
+                            icon: const Icon(Icons.play_arrow_rounded, size: 18),
+                            label: const Text('CONTINUAR CONTEO', style: TextStyle(fontWeight: FontWeight.bold)),
+                            onPressed: () async {
+                              await Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ConteoTomaPage(tomaId: tomaId),
+                                ),
+                              );
+                              _cargarHistorial();
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        // Botón eliminar (solo tomas sin productos contados)
+                        Tooltip(
+                          message: 'Eliminar toma vacía',
+                          child: InkWell(
+                            borderRadius: BorderRadius.circular(10),
+                            onTap: () => _eliminarToma(tomaId),
+                            child: Container(
+                              padding: const EdgeInsets.all(11),
+                              decoration: BoxDecoration(
+                                color: Colors.redAccent.withValues(alpha: 0.12),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
+                              ),
+                              child: const Icon(Icons.delete_outline_rounded, color: Colors.redAccent, size: 20),
+                            ),
+                          ),
+                        ),
+                      ],
                     )
                   else
                     SizedBox(
