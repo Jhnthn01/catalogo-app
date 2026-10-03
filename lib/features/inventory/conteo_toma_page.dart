@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:intl/intl.dart';
 import 'package:catalogo_digital_app/features/inventory/nuevo_producto_page.dart';
 import 'package:catalogo_digital_app/features/inventory/revision_toma_page.dart';
+import 'package:catalogo_digital_app/widgets/buscador_productos_widget.dart';
 import 'package:catalogo_digital_app/services/toma_inventario_service.dart';
 
 class ConteoTomaPage extends StatefulWidget {
@@ -23,6 +25,9 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
   final TextEditingController _cantidadController = TextEditingController(text: '1');
   final FocusNode _cantidadFocusNode = FocusNode();
 
+  String _modoBusqueda = 'cualquiera'; // 'todas' | 'cualquiera'
+  Timer? _searchDebounce;
+
   bool _isScanning = false;
   bool _isLoadingContados = true;
   bool _isSearchingProducto = false;
@@ -31,6 +36,7 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
 
   Map<String, dynamic>? _productoSeleccionado;
   List<Map<String, dynamic>> _productosContados = [];
+  List<Map<String, dynamic>> _resultadosBusqueda = [];
 
   @override
   void initState() {
@@ -40,6 +46,7 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     _scannerController.dispose();
     _searchController.dispose();
     _cantidadController.dispose();
@@ -70,109 +77,202 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
     }
   }
 
-  /// Busca un producto por SKU, UPC, ALU o descripción
-  Future<void> _buscarProducto(String codigo) async {
+  /// Genera variantes del código para tolerar diferencias de ceros iniciales
+  /// que ocurren según el formato de código de barras (UPC-A, EAN-13, etc.)
+  ///
+  /// Ejemplo: "01728" → ["01728", "1728", "0000001728", "00000001728"]
+  List<String> _generarVariantesCodigo(String codigo) {
+    final variantes = <String>{codigo}; // siempre incluir el original
+
+    // Sin ceros iniciales (el escáner puede entregar el valor "numérico")
+    final sinCeros = codigo.replaceFirst(RegExp(r'^0+'), '');
+    if (sinCeros.isNotEmpty && sinCeros != codigo) variantes.add(sinCeros);
+
+    // Paddeado a 13 dígitos (EAN-13) y a 12 (UPC-A), solo si el código es numérico
+    if (RegExp(r'^\d+$').hasMatch(codigo)) {
+      if (codigo.length < 13) variantes.add(codigo.padLeft(13, '0'));
+      if (codigo.length < 12) variantes.add(codigo.padLeft(12, '0'));
+    }
+
+    return variantes.toList();
+  }
+
+  /// Busca un producto por SKU exacto, código de barras o búsqueda multi-token (%)
+
+  Future<void> _buscarProducto(String codigo, {bool isScan = false}) async {
     final q = codigo.trim();
-    if (q.isEmpty) return;
+    if (q.isEmpty) {
+      setState(() {
+        _productoSeleccionado = null;
+        _resultadosBusqueda = [];
+      });
+      return;
+    }
 
     setState(() {
       _isSearchingProducto = true;
       _productoSeleccionado = null;
+      _resultadosBusqueda = [];
     });
 
     try {
-      // 1. Búsqueda exacta por SKU, UPC o ALU
-      final exactMatch = await _supabase
-          .from('productos')
-          .select('id, sku, upc, alu, descripcion_1, marca, color')
-          .or('sku.eq.$q,upc.eq.$q,alu.eq.$q')
-          .maybeSingle();
+      // 1. Solo en escaneo: intentar coincidencia exacta y auto-seleccionar
+      //    Al escribir manualmente, se muestra como sugerencia (no auto-rellena)
+      if (isScan) {
+        // Generar variantes del código para manejar ceros iniciales (UPC-A / EAN-13)
+        final List<String> variantes = _generarVariantesCodigo(q);
+        final orClause = variantes
+            .expand((v) => ['sku.eq.$v', 'upc.eq.$v', 'alu.eq.$v'])
+            .join(',');
 
-      if (!mounted) return;
-
-      if (exactMatch != null) {
-        _seleccionarProducto(Map<String, dynamic>.from(exactMatch));
-      } else {
-        // 2. Búsqueda por coincidencia parcial en descripción o SKU
-        final List<dynamic> listMatch = await _supabase
+        final exactMatch = await _supabase
             .from('productos')
             .select('id, sku, upc, alu, descripcion_1, marca, color')
-            .or('descripcion_1.ilike.%$q%,sku.ilike.%$q%')
-            .limit(5);
+            .or(orClause)
+            .maybeSingle();
 
         if (!mounted) return;
 
-        if (listMatch.isEmpty) {
-          final bool? deseaCrear = await showDialog<bool>(
-            context: context,
-            builder: (ctx) => AlertDialog(
-              backgroundColor: const Color(0xFF1E1E1E),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: const BorderSide(color: Colors.blueAccent, width: 1.5),
-              ),
-              title: const Row(
-                children: [
-                  Icon(Icons.inventory_2_outlined, color: Colors.blueAccent, size: 28),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      'Producto no encontrado',
-                      style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                    ),
+        if (exactMatch != null) {
+          _seleccionarProducto(Map<String, dynamic>.from(exactMatch));
+          return;
+        }
+      }
+
+      // 2. Búsqueda multi-token (%)
+      final tokens = q.split(RegExp(r'[% ]+')).where((t) => t.isNotEmpty).toList();
+      if (tokens.isEmpty) return;
+
+      List<Map<String, dynamic>> listMatch = [];
+      try {
+        final List<dynamic> data = await _supabase.rpc(
+          'buscar_productos',
+          params: {
+            'p_tokens': tokens,
+            'p_tienda_id': null,
+            'p_modo': _modoBusqueda,
+            'p_limit': 25,
+          },
+        );
+        listMatch = List<Map<String, dynamic>>.from(data);
+      } catch (rpcError) {
+        debugPrint('Fallback en buscar_productos: $rpcError');
+        var query = _supabase
+            .from('productos')
+            .select('id, sku, upc, alu, descripcion_1, marca, color');
+        for (final t in tokens) {
+          query = query.or('descripcion_1.ilike.%$t%,sku.ilike.%$t%,marca.ilike.%$t%');
+        }
+        final List<dynamic> fbData = await query.limit(25);
+        listMatch = List<Map<String, dynamic>>.from(fbData);
+      }
+
+      if (!mounted) return;
+
+      // Ordenar por prioridad si es búsqueda en modo 'cualquiera'
+      if (_modoBusqueda == 'cualquiera' && tokens.length > 1) {
+        int firstMatchIndex(Map<String, dynamic> prod) {
+          final desc1 = (prod['descripcion_1'] ?? '').toString().toLowerCase();
+          final sku = (prod['sku'] ?? '').toString().toLowerCase();
+          final upc = (prod['upc'] ?? '').toString().toLowerCase();
+          final marca = (prod['marca'] ?? '').toString().toLowerCase();
+          final alu = (prod['alu'] ?? '').toString().toLowerCase();
+
+          for (int i = 0; i < tokens.length; i++) {
+            final t = tokens[i].toLowerCase();
+            if (desc1.contains(t) ||
+                sku.contains(t) ||
+                upc.contains(t) ||
+                marca.contains(t) ||
+                alu.contains(t)) {
+              return i;
+            }
+          }
+          return tokens.length;
+        }
+
+        listMatch.sort((a, b) {
+          final idxA = firstMatchIndex(a);
+          final idxB = firstMatchIndex(b);
+          if (idxA != idxB) return idxA.compareTo(idxB);
+          final nomA = (a['descripcion_1'] ?? '').toString().toLowerCase();
+          final nomB = (b['descripcion_1'] ?? '').toString().toLowerCase();
+          return nomA.compareTo(nomB);
+        });
+      }
+
+      if (listMatch.isEmpty) {
+        final bool? deseaCrear = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: const Color(0xFF1E1E1E),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: Colors.blueAccent, width: 1.5),
+            ),
+            title: const Row(
+              children: [
+                Icon(Icons.inventory_2_outlined, color: Colors.blueAccent, size: 28),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Producto no encontrado',
+                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
                   ),
-                ],
-              ),
-              content: RichText(
-                text: TextSpan(
-                  style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
-                  children: [
-                    const TextSpan(text: 'No se encontró ningún producto con el código SKU / Barcode:\n\n'),
-                    TextSpan(
-                      text: '🏷️ $q\n\n',
-                      style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 16),
-                    ),
-                    const TextSpan(text: '¿Deseas registrar este nuevo producto ahora para incluirlo en la toma?'),
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancelar', style: TextStyle(color: Colors.white60)),
-                ),
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.blueAccent,
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                  ),
-                  icon: const Icon(Icons.add, size: 18),
-                  label: const Text('Crear Producto', style: TextStyle(fontWeight: FontWeight.bold)),
-                  onPressed: () => Navigator.pop(ctx, true),
                 ),
               ],
             ),
+            content: RichText(
+              text: TextSpan(
+                style: const TextStyle(color: Colors.white70, fontSize: 14, height: 1.4),
+                children: [
+                  const TextSpan(text: 'No se encontró ningún producto con el código / búsqueda:\n\n'),
+                  TextSpan(
+                    text: '🏷️ $q\n\n',
+                    style: const TextStyle(color: Colors.amberAccent, fontWeight: FontWeight.bold, fontSize: 16),
+                  ),
+                  const TextSpan(text: '¿Deseas registrar este nuevo producto ahora para incluirlo en la toma?'),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancelar', style: TextStyle(color: Colors.white60)),
+              ),
+              ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.blueAccent,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('Crear Producto', style: TextStyle(fontWeight: FontWeight.bold)),
+                onPressed: () => Navigator.pop(ctx, true),
+              ),
+            ],
+          ),
+        );
+
+        if (deseaCrear == true && mounted) {
+          final bool? creado = await Navigator.push<bool>(
+            context,
+            MaterialPageRoute(
+              builder: (context) => NuevoProductoPage(initialSku: q),
+            ),
           );
 
-          if (deseaCrear == true && mounted) {
-            final bool? creado = await Navigator.push<bool>(
-              context,
-              MaterialPageRoute(
-                builder: (context) => NuevoProductoPage(initialSku: q),
-              ),
-            );
-
-            if (creado == true && mounted) {
-              _searchController.text = q;
-              _buscarProducto(q);
-            }
+          if (creado == true && mounted) {
+            _searchController.text = q;
+            _buscarProducto(q);
           }
-        } else if (listMatch.length == 1) {
-          _seleccionarProducto(Map<String, dynamic>.from(listMatch.first));
-        } else {
-          _mostrarModalSeleccionProducto(List<Map<String, dynamic>>.from(listMatch));
         }
+      } else if (listMatch.length == 1 && isScan) {
+        // Solo auto-seleccionar con 1 resultado si vino de un escaneo
+        _seleccionarProducto(listMatch.first);
+      } else {
+        // Escritura manual: siempre mostrar como sugerencia, nunca auto-rellenar
+        setState(() => _resultadosBusqueda = listMatch);
       }
     } catch (e) {
       if (mounted) {
@@ -191,6 +291,7 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
   void _seleccionarProducto(Map<String, dynamic> producto) {
     setState(() {
       _productoSeleccionado = producto;
+      _resultadosBusqueda = [];
       _cantidadController.text = '1';
       _searchController.text = producto['sku'] ?? '';
     });
@@ -200,43 +301,128 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
     });
   }
 
-  void _mostrarModalSeleccionProducto(List<Map<String, dynamic>> opciones) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF1E1E1E),
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+  Widget _buildListaResultados() {
+    return Container(
+      decoration: BoxDecoration(
+        color: const Color(0xFF1A1A2E),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: Colors.blueAccent.withValues(alpha: 0.4)),
       ),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Selecciona el producto coincidente:',
-              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Cabecera con conteo de resultados
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: Colors.blueAccent.withValues(alpha: 0.12),
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(13)),
+              border: const Border(bottom: BorderSide(color: Colors.white10)),
             ),
-            const SizedBox(height: 12),
-            ListView.separated(
-              shrinkWrap: true,
-              itemCount: opciones.length,
-              separatorBuilder: (context, index) => const Divider(color: Colors.white10),
-              itemBuilder: (context, index) {
-                final p = opciones[index];
-                return ListTile(
-                  title: Text(p['descripcion_1'] ?? 'Sin nombre', style: const TextStyle(color: Colors.white)),
-                  subtitle: Text('SKU: ${p['sku'] ?? '—'}', style: const TextStyle(color: Colors.tealAccent, fontSize: 12)),
-                  trailing: const Icon(Icons.arrow_forward_ios, color: Colors.white38, size: 14),
-                  onTap: () {
-                    Navigator.pop(ctx);
-                    _seleccionarProducto(p);
-                  },
-                );
-              },
+            child: Row(
+              children: [
+                const Icon(Icons.search_rounded, color: Colors.blueAccent, size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Selecciona el producto para contar',
+                    style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: Colors.tealAccent.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.4)),
+                  ),
+                  child: Text(
+                    '${_resultadosBusqueda.length} resultados',
+                    style: const TextStyle(color: Colors.tealAccent, fontSize: 11, fontWeight: FontWeight.bold),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: () => setState(() {
+                    _resultadosBusqueda = [];
+                    _searchController.clear();
+                  }),
+                  child: const Padding(
+                    padding: EdgeInsets.all(4),
+                    child: Icon(Icons.close_rounded, color: Colors.white38, size: 18),
+                  ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+          // Lista de productos encontrados
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: _resultadosBusqueda.length,
+            separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white10),
+            itemBuilder: (context, index) {
+              final p = _resultadosBusqueda[index];
+              final sku = p['sku'] ?? '—';
+              final marca = p['marca'];
+              final color = p['color'];
+              final detalles = [
+                'SKU: $sku',
+                if (marca != null && marca.toString().isNotEmpty) 'Marca: $marca',
+                if (color != null && color.toString().isNotEmpty) 'Color: $color',
+              ].join(' • ');
+
+              return Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: index == _resultadosBusqueda.length - 1
+                      ? const BorderRadius.vertical(bottom: Radius.circular(13))
+                      : BorderRadius.zero,
+                  onTap: () => _seleccionarProducto(p),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: Colors.blueAccent.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: const Icon(Icons.inventory_2_outlined, color: Colors.blueAccent, size: 18),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                p['descripcion_1'] ?? 'Sin nombre',
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 13),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                detalles,
+                                style: const TextStyle(color: Colors.tealAccent, fontSize: 11),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white24, size: 13),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -422,13 +608,56 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
                   // ── 1. Visor de Escáner ─────────────────────────────────────
                   if (_isScanning) _buildScannerBox(),
 
-                  // ── 2. Barra de Búsqueda de Producto ────────────────────────
-                  _buildSearchBar(),
+                  // ── 2. Barra de Búsqueda Multi-Token de Producto ────────────
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4.0),
+                    child: BuscadorProductosWidget(
+                      controller: _searchController,
+                      modoBusqueda: _modoBusqueda,
+                      onQueryChanged: (val) {
+                        _searchDebounce?.cancel();
+                        final q = val.trim();
+                        if (q.isEmpty) {
+                          setState(() => _productoSeleccionado = null);
+                          return;
+                        }
+                        _searchDebounce = Timer(const Duration(milliseconds: 350), () {
+                          if (mounted) _buscarProducto(q);
+                        });
+                      },
+                      onModoChanged: (nuevoModo) {
+                        setState(() => _modoBusqueda = nuevoModo);
+                        if (_searchController.text.trim().isNotEmpty) {
+                          _buscarProducto(_searchController.text.trim());
+                        }
+                      },
+                      onScanPressed: () => setState(() => _isScanning = true),
+                      hintText: 'Buscar por SKU, Nombre, Marca, UPC, ALU o tokens (% / espacios)...',
+                      mostrarModoSelector: true,
+                      mostrarChips: true,
+                      mostrarEscaner: true,
+                    ),
+                  ),
+
+                  if (_isSearchingProducto)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 8),
+                      child: Center(
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blueAccent),
+                        ),
+                      ),
+                    ),
+
                   const SizedBox(height: 12),
 
-                  // ── 3. Tarjeta de Captura de Conteo ─────────────────────────
+                  // ── 3. Tarjeta de Captura / Lista de resultados / Placeholder ─
                   if (_productoSeleccionado != null)
                     _buildTarjetaCaptura()
+                  else if (_resultadosBusqueda.isNotEmpty)
+                    _buildListaResultados()
                   else
                     _buildPlaceholderSinProducto(),
 
@@ -468,7 +697,8 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
                   final String code = (barcodes.first.rawValue ?? "").trim();
                   if (code.isNotEmpty) {
                     setState(() => _isScanning = false);
-                    _buscarProducto(code);
+                    _searchController.text = code;
+                    _buscarProducto(code, isScan: true);
                   }
                 }
               },
@@ -512,51 +742,6 @@ class _ConteoTomaPageState extends State<ConteoTomaPage> {
             ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildSearchBar() {
-    return Container(
-      decoration: BoxDecoration(
-        color: const Color(0xFF1E1E1E),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.white12),
-      ),
-      child: TextField(
-        controller: _searchController,
-        style: const TextStyle(color: Colors.white),
-        decoration: InputDecoration(
-          hintText: 'Escanear o buscar por SKU, UPC, ALU o Nombre...',
-          hintStyle: const TextStyle(color: Colors.white38, fontSize: 13),
-          prefixIcon: const Icon(Icons.search, color: Colors.blueAccent),
-          suffixIcon: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (_isSearchingProducto)
-                const Padding(
-                  padding: EdgeInsets.all(12),
-                  child: SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.blueAccent)),
-                ),
-              if (_searchController.text.isNotEmpty)
-                IconButton(
-                  icon: const Icon(Icons.clear, color: Colors.white54, size: 18),
-                  onPressed: () {
-                    _searchController.clear();
-                    setState(() => _productoSeleccionado = null);
-                  },
-                ),
-              IconButton(
-                icon: const Icon(Icons.qr_code_scanner, color: Colors.blueAccent),
-                tooltip: 'Escanear código',
-                onPressed: () => setState(() => _isScanning = true),
-              ),
-            ],
-          ),
-          border: InputBorder.none,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        ),
-        onSubmitted: (val) => _buscarProducto(val),
       ),
     );
   }
