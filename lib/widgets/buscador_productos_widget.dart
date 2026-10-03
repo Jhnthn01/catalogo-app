@@ -58,29 +58,35 @@ class _BuscadorProductosWidgetState extends State<BuscadorProductosWidget> {
         child: TextField(
           controller: widget.controller,
           onChanged: widget.onQueryChanged,
+          autocorrect: false,
+          enableSuggestions: false,
+          autofillHints: const [],
           style: const TextStyle(color: Colors.white, fontSize: 14),
           decoration: InputDecoration(
             hintText: widget.hintText,
             hintStyle: const TextStyle(color: Colors.grey, fontSize: 13),
             prefixIcon: const Icon(Icons.search, color: Colors.blueAccent, size: 20),
-            suffixIcon: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (widget.controller.text.isNotEmpty)
-                  IconButton(
-                    icon: const Icon(Icons.clear, color: Colors.white54, size: 18),
-                    onPressed: () {
-                      widget.controller.clear();
-                      widget.onQueryChanged('');
-                      setState(() {});
-                    },
-                  ),
-                if (widget.mostrarEscaner && widget.onScanPressed != null)
-                  IconButton(
-                    icon: const Icon(Icons.qr_code_scanner, color: Colors.blueAccent, size: 20),
-                    onPressed: widget.onScanPressed,
-                  ),
-              ],
+            suffixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
+            suffixIcon: IntrinsicWidth(
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (widget.controller.text.isNotEmpty)
+                    IconButton(
+                      icon: const Icon(Icons.clear, color: Colors.white54, size: 18),
+                      onPressed: () {
+                        widget.controller.clear();
+                        widget.onQueryChanged('');
+                        setState(() {});
+                      },
+                    ),
+                  if (widget.mostrarEscaner && widget.onScanPressed != null)
+                    IconButton(
+                      icon: const Icon(Icons.qr_code_scanner, color: Colors.blueAccent, size: 20),
+                      onPressed: widget.onScanPressed,
+                    ),
+                ],
+              ),
             ),
             border: InputBorder.none,
             contentPadding: const EdgeInsets.symmetric(vertical: 12),
