@@ -34,9 +34,26 @@ class _NuevoProductoPageState extends State<NuevoProductoPage> {
   String? _skuExistenteNombre;
   String? _ultimoSkuVerificado;
 
+  // Estado de jerarquía del maestro
+  bool _cargandoJerarquia = true;
+  List<Map<String, dynamic>> _jerarquiaCompleta = [];
+  List<String> _categorias = [];
+  List<String> _clases = [];
+  List<String> _subClases = [];
+
+  String? _categoriaSeleccionada;
+  String? _claseSeleccionada;
+  String? _subClaseSeleccionada;
+  int? _subClaseIdSeleccionada;
+
+  bool _categoriaManual = false;
+  bool _claseManual = false;
+  bool _subClaseManual = false;
+
   @override
   void initState() {
     super.initState();
+    _cargarJerarquiaMaestro();
     if (widget.initialSku != null && widget.initialSku!.trim().isNotEmpty) {
       _skuController.text = widget.initialSku!.trim();
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -192,6 +209,7 @@ class _NuevoProductoPageState extends State<NuevoProductoPage> {
         'categoria': _categoriaController.text.trim().isEmpty ? null : _categoriaController.text.trim(),
         'clase': _claseController.text.trim().isEmpty ? null : _claseController.text.trim(),
         'sub_clase': _subClaseController.text.trim().isEmpty ? null : _subClaseController.text.trim(),
+        'sub_clase_id': _subClaseIdSeleccionada,
         'estilo': _estiloController.text.trim().isEmpty ? null : _estiloController.text.trim(),
         'descripcion_1': _descripcion1Controller.text.trim(),
         'descripcion_2': _descripcion2Controller.text.trim().isEmpty ? null : _descripcion2Controller.text.trim(),
@@ -405,6 +423,316 @@ class _NuevoProductoPageState extends State<NuevoProductoPage> {
     );
   }
 
+  Future<void> _cargarJerarquiaMaestro() async {
+    setState(() => _cargandoJerarquia = true);
+    try {
+      List<Map<String, dynamic>> jerarquia = [];
+      try {
+        final data = await Supabase.instance.client.rpc('get_categorias_jerarquia');
+        if (data != null && data is List) {
+          jerarquia = List<Map<String, dynamic>>.from(data);
+        }
+      } catch (e) {
+        debugPrint('RPC get_categorias_jerarquia no disponible o con otro formato: $e');
+      }
+
+      // Si el RPC no incluye sub_clase_id o está vacío, consultar directamente las nuevas tablas maestras
+      final bool necesitaTablas = jerarquia.isEmpty || (jerarquia.isNotEmpty && jerarquia.first['sub_clase_id'] == null);
+      if (necesitaTablas) {
+        try {
+          final res = await Supabase.instance.client
+              .from('sub_clases')
+              .select('id, nombre, clases!inner(id, nombre, categoria_id, categorias!inner(id, nombre))');
+
+          if (res.isNotEmpty) {
+            final List<Map<String, dynamic>> desdeTablas = [];
+            for (final item in res) {
+              final subNombre = item['nombre']?.toString().trim();
+              final subId = item['id'] != null ? int.tryParse(item['id'].toString()) : null;
+              final claseMap = item['clases'] as Map<String, dynamic>?;
+              final claseNombre = claseMap?['nombre']?.toString().trim();
+              final catMap = claseMap?['categorias'] as Map<String, dynamic>?;
+              final catNombre = catMap?['nombre']?.toString().trim();
+
+              if (catNombre != null && catNombre.isNotEmpty) {
+                desdeTablas.add({
+                  'categoria': catNombre,
+                  'clase': claseNombre ?? '',
+                  'sub_clase': subNombre ?? '',
+                  'sub_clase_id': subId,
+                });
+              }
+            }
+            if (desdeTablas.isNotEmpty) {
+              jerarquia = desdeTablas;
+            }
+          }
+        } catch (eTablas) {
+          debugPrint('Consulta directa a tablas normalizadas: $eTablas');
+        }
+      }
+
+      if (mounted) {
+        final cats = jerarquia
+            .map((e) => e['categoria']?.toString().trim() ?? '')
+            .where((c) => c.isNotEmpty)
+            .toSet()
+            .toList()..sort();
+
+        setState(() {
+          _jerarquiaCompleta = jerarquia;
+          _categorias = cats;
+          _cargandoJerarquia = false;
+        });
+      }
+    } catch (e) {
+      debugPrint('Error al cargar jerarquía del maestro: $e');
+      if (mounted) {
+        setState(() {
+          _cargandoJerarquia = false;
+          _categoriaManual = true;
+          _claseManual = true;
+          _subClaseManual = true;
+        });
+      }
+    }
+  }
+
+  void _onCategoriaSeleccionada(String? nuevaCat) {
+    if (nuevaCat == '__LIMPIAR__' || nuevaCat == null) {
+      setState(() {
+        _categoriaSeleccionada = null;
+        _categoriaController.clear();
+        _claseSeleccionada = null;
+        _claseController.clear();
+        _subClaseSeleccionada = null;
+        _subClaseIdSeleccionada = null;
+        _subClaseController.clear();
+        _clases = [];
+        _subClases = [];
+      });
+      return;
+    }
+
+    if (nuevaCat == '__NUEVA__') {
+      setState(() {
+        _categoriaManual = true;
+        _categoriaSeleccionada = null;
+        _categoriaController.clear();
+        _claseSeleccionada = null;
+        _claseController.clear();
+        _subClaseSeleccionada = null;
+        _subClaseIdSeleccionada = null;
+        _subClaseController.clear();
+        _clases = [];
+        _subClases = [];
+      });
+      return;
+    }
+
+    setState(() {
+      _categoriaSeleccionada = nuevaCat;
+      _categoriaController.text = nuevaCat;
+      _claseSeleccionada = null;
+      _claseController.clear();
+      _subClaseSeleccionada = null;
+      _subClaseIdSeleccionada = null;
+      _subClaseController.clear();
+      _subClases = [];
+
+      _clases = _jerarquiaCompleta
+          .where((item) => (item['categoria']?.toString().trim() ?? '') == nuevaCat)
+          .map((e) => e['clase']?.toString().trim() ?? '')
+          .where((c) => c.isNotEmpty)
+          .toSet()
+          .toList()..sort();
+    });
+  }
+
+  void _onClaseSeleccionada(String? nuevaClase) {
+    if (nuevaClase == '__LIMPIAR__' || nuevaClase == null) {
+      setState(() {
+        _claseSeleccionada = null;
+        _claseController.clear();
+        _subClaseSeleccionada = null;
+        _subClaseIdSeleccionada = null;
+        _subClaseController.clear();
+        _subClases = [];
+      });
+      return;
+    }
+
+    if (nuevaClase == '__NUEVA__') {
+      setState(() {
+        _claseManual = true;
+        _claseSeleccionada = null;
+        _claseController.clear();
+        _subClaseSeleccionada = null;
+        _subClaseIdSeleccionada = null;
+        _subClaseController.clear();
+        _subClases = [];
+      });
+      return;
+    }
+
+    setState(() {
+      _claseSeleccionada = nuevaClase;
+      _claseController.text = nuevaClase;
+      _subClaseSeleccionada = null;
+      _subClaseIdSeleccionada = null;
+      _subClaseController.clear();
+
+      _subClases = _jerarquiaCompleta
+          .where((item) =>
+              (item['categoria']?.toString().trim() ?? '') == _categoriaSeleccionada &&
+              (item['clase']?.toString().trim() ?? '') == nuevaClase)
+          .map((e) => e['sub_clase']?.toString().trim() ?? '')
+          .where((c) => c.isNotEmpty)
+          .toSet()
+          .toList()..sort();
+    });
+  }
+
+  void _onSubClaseSeleccionada(String? nuevaSubClase) {
+    if (nuevaSubClase == '__LIMPIAR__' || nuevaSubClase == null) {
+      setState(() {
+        _subClaseSeleccionada = null;
+        _subClaseIdSeleccionada = null;
+        _subClaseController.clear();
+      });
+      return;
+    }
+
+    if (nuevaSubClase == '__NUEVA__') {
+      setState(() {
+        _subClaseManual = true;
+        _subClaseSeleccionada = null;
+        _subClaseIdSeleccionada = null;
+        _subClaseController.clear();
+      });
+      return;
+    }
+
+    int? matchedId;
+    final match = _jerarquiaCompleta.firstWhere(
+      (item) =>
+          (item['categoria']?.toString().trim() ?? '') == _categoriaSeleccionada &&
+          (item['clase']?.toString().trim() ?? '') == _claseSeleccionada &&
+          (item['sub_clase']?.toString().trim() ?? '') == nuevaSubClase,
+      orElse: () => {},
+    );
+    if (match.isNotEmpty && match['sub_clase_id'] != null) {
+      matchedId = int.tryParse(match['sub_clase_id'].toString());
+    }
+
+    setState(() {
+      _subClaseSeleccionada = nuevaSubClase;
+      _subClaseIdSeleccionada = matchedId;
+      _subClaseController.text = nuevaSubClase;
+    });
+  }
+
+  Widget _buildDropdownJerarquia({
+    required String label,
+    required String hint,
+    required List<String> opciones,
+    required String? valorActual,
+    required bool isEnabled,
+    required bool isManual,
+    required TextEditingController controller,
+    required ValueChanged<String?> onSeleccionado,
+    required VoidCallback onToggleModo,
+  }) {
+    if (isManual) {
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 16.0),
+        child: TextFormField(
+          controller: controller,
+          style: const TextStyle(color: Colors.white),
+          decoration: InputDecoration(
+            labelText: '$label (Manual)',
+            labelStyle: const TextStyle(color: Colors.tealAccent),
+            filled: true,
+            fillColor: const Color(0xFF1E1E1E),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(10),
+              borderSide: BorderSide.none,
+            ),
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.list_alt_rounded, color: Colors.tealAccent, size: 20),
+              tooltip: 'Seleccionar del maestro',
+              onPressed: onToggleModo,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final bool valorValido = valorActual != null && opciones.contains(valorActual);
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: DropdownButtonFormField<String>(
+        key: ValueKey('${label}_${valorActual}_${opciones.length}'),
+        initialValue: valorValido ? valorActual : null,
+        isExpanded: true,
+        dropdownColor: const Color(0xFF262626),
+        style: const TextStyle(color: Colors.white, fontSize: 13),
+        icon: const Icon(Icons.keyboard_arrow_down, color: Colors.blueAccent),
+        decoration: InputDecoration(
+          labelText: label,
+          labelStyle: const TextStyle(color: Colors.white54),
+          filled: true,
+          fillColor: isEnabled ? const Color(0xFF1E1E1E) : const Color(0xFF161616),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide.none,
+          ),
+          suffixIcon: IconButton(
+            icon: const Icon(Icons.edit_note_rounded, color: Colors.white38, size: 20),
+            tooltip: 'Escribir manualmente',
+            onPressed: onToggleModo,
+          ),
+        ),
+        hint: Text(
+          hint,
+          style: TextStyle(color: isEnabled ? Colors.white38 : Colors.white24, fontSize: 13),
+          overflow: TextOverflow.ellipsis,
+        ),
+        items: !isEnabled
+            ? null
+            : [
+                if (valorActual != null)
+                  const DropdownMenuItem<String>(
+                    value: '__LIMPIAR__',
+                    child: Row(
+                      children: [
+                        Icon(Icons.clear, color: Colors.redAccent, size: 16),
+                        SizedBox(width: 6),
+                        Text('Quitar selección', style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+                      ],
+                    ),
+                  ),
+                ...opciones.map((opc) => DropdownMenuItem<String>(
+                      value: opc,
+                      child: Text(opc, style: const TextStyle(fontSize: 13), overflow: TextOverflow.ellipsis),
+                    )),
+                const DropdownMenuItem<String>(
+                  value: '__NUEVA__',
+                  child: Row(
+                    children: [
+                      Icon(Icons.add, color: Colors.tealAccent, size: 16),
+                      SizedBox(width: 6),
+                      Text('+ Nueva opción...', style: TextStyle(color: Colors.tealAccent, fontStyle: FontStyle.italic, fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ],
+        onChanged: isEnabled ? onSeleccionado : null,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -455,15 +783,92 @@ class _NuevoProductoPageState extends State<NuevoProductoPage> {
 
                     Row(
                       children: [
-                        Expanded(child: _buildField('Categoría', _categoriaController)),
+                        Expanded(
+                          child: _buildDropdownJerarquia(
+                            label: 'Categoría',
+                            hint: _cargandoJerarquia
+                                ? 'Cargando maestro...'
+                                : 'Seleccionar categoría',
+                            opciones: _categorias,
+                            valorActual: _categoriaSeleccionada,
+                            isEnabled: !_cargandoJerarquia && _categorias.isNotEmpty,
+                            isManual: _categoriaManual,
+                            controller: _categoriaController,
+                            onSeleccionado: _onCategoriaSeleccionada,
+                            onToggleModo: () {
+                              setState(() {
+                                _categoriaManual = !_categoriaManual;
+                                if (!_categoriaManual) {
+                                  if (_categorias.contains(_categoriaController.text.trim())) {
+                                    _categoriaSeleccionada = _categoriaController.text.trim();
+                                  } else {
+                                    _categoriaSeleccionada = null;
+                                  }
+                                }
+                              });
+                            },
+                          ),
+                        ),
                         const SizedBox(width: 16),
-                        Expanded(child: _buildField('Clase', _claseController)),
+                        Expanded(
+                          child: _buildDropdownJerarquia(
+                            label: 'Clase',
+                            hint: _categoriaSeleccionada == null && !_categoriaManual
+                                ? 'Selecciona categoría primero'
+                                : (_clases.isEmpty ? 'Sin clases (+ Nueva)' : 'Seleccionar clase'),
+                            opciones: _clases,
+                            valorActual: _claseSeleccionada,
+                            isEnabled: !_cargandoJerarquia && (_categoriaSeleccionada != null || _categoriaManual),
+                            isManual: _claseManual,
+                            controller: _claseController,
+                            onSeleccionado: _onClaseSeleccionada,
+                            onToggleModo: () {
+                              setState(() {
+                                _claseManual = !_claseManual;
+                                if (!_claseManual) {
+                                  if (_clases.contains(_claseController.text.trim())) {
+                                    _claseSeleccionada = _claseController.text.trim();
+                                  } else {
+                                    _claseSeleccionada = null;
+                                  }
+                                }
+                              });
+                            },
+                          ),
+                        ),
                       ],
                     ),
-                    
+
                     Row(
                       children: [
-                        Expanded(child: _buildField('Sub-clase', _subClaseController)),
+                        Expanded(
+                          child: _buildDropdownJerarquia(
+                            label: 'Subcategoría',
+                            hint: _categoriaSeleccionada == null && !_categoriaManual
+                                ? 'Selecciona categoría primero'
+                                : (_claseSeleccionada == null && !_claseManual
+                                    ? 'Selecciona clase primero'
+                                    : (_subClases.isEmpty ? 'Sin subcategorías (+ Nueva)' : 'Seleccionar subcategoría')),
+                            opciones: _subClases,
+                            valorActual: _subClaseSeleccionada,
+                            isEnabled: !_cargandoJerarquia && (_claseSeleccionada != null || _subClaseManual || _claseManual),
+                            isManual: _subClaseManual,
+                            controller: _subClaseController,
+                            onSeleccionado: _onSubClaseSeleccionada,
+                            onToggleModo: () {
+                              setState(() {
+                                _subClaseManual = !_subClaseManual;
+                                if (!_subClaseManual) {
+                                  if (_subClases.contains(_subClaseController.text.trim())) {
+                                    _subClaseSeleccionada = _subClaseController.text.trim();
+                                  } else {
+                                    _subClaseSeleccionada = null;
+                                  }
+                                }
+                              });
+                            },
+                          ),
+                        ),
                         const SizedBox(width: 16),
                         Expanded(child: _buildField('Estilo', _estiloController)),
                       ],
