@@ -45,6 +45,8 @@ class _TablaDetalladaInventarioScreenState
   String? _catFiltro;
   String? _claseFiltro;
   String? _subClaseFiltro;
+  int? _subClaseIdFiltro;
+  List<int>? _subClaseIdsFiltro;
 
   int _rowsPerPage = 15;
   int _sortColumnIndex = 1; // Por defecto ordenar por Descripción
@@ -195,9 +197,23 @@ class _TablaDetalladaInventarioScreenState
           query = query.eq('inventario.tienda_id', -1);
         }
 
-        if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
-        if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
-        if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
+        final idsList = _subClaseIdsFiltro != null && _subClaseIdsFiltro!.isNotEmpty
+            ? _subClaseIdsFiltro!.join(',')
+            : null;
+
+        if (_subClaseIdFiltro != null) {
+          query = query.or('sub_clase_id.eq.$_subClaseIdFiltro,sub_clase.eq.$_subClaseFiltro');
+        } else if (idsList != null) {
+          if (_claseFiltro != null) {
+            query = query.or('sub_clase_id.in.($idsList),clase.eq.$_claseFiltro');
+          } else if (_catFiltro != null) {
+            query = query.or('sub_clase_id.in.($idsList),categoria.eq.$_catFiltro');
+          }
+        } else {
+          if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
+          if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
+          if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
+        }
 
         const limit = 99;
         final List<dynamic> data = await _aplicarOrdenServidor(query)
@@ -282,9 +298,23 @@ class _TablaDetalladaInventarioScreenState
         query = query.eq('inventario.tienda_id', -1);
       }
 
-      if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
-      if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
-      if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
+      final idsListMas = _subClaseIdsFiltro != null && _subClaseIdsFiltro!.isNotEmpty
+          ? _subClaseIdsFiltro!.join(',')
+          : null;
+
+      if (_subClaseIdFiltro != null) {
+        query = query.or('sub_clase_id.eq.$_subClaseIdFiltro,sub_clase.eq.$_subClaseFiltro');
+      } else if (idsListMas != null) {
+        if (_claseFiltro != null) {
+          query = query.or('sub_clase_id.in.($idsListMas),clase.eq.$_claseFiltro');
+        } else if (_catFiltro != null) {
+          query = query.or('sub_clase_id.in.($idsListMas),categoria.eq.$_catFiltro');
+        }
+      } else {
+        if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
+        if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
+        if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
+      }
 
       const int limit = 100;
       final List<dynamic> data = await _aplicarOrdenServidor(query)
@@ -470,9 +500,22 @@ class _TablaDetalladaInventarioScreenState
 
     _productosFiltrados = _todosLosProductos.where((p) {
       // Filtro de jerarquía
-      if (_catFiltro != null && p['categoria'] != _catFiltro) return false;
-      if (_claseFiltro != null && p['clase'] != _claseFiltro) return false;
-      if (_subClaseFiltro != null && p['sub_clase'] != _subClaseFiltro) return false;
+      if (_subClaseIdFiltro != null) {
+        final pId = int.tryParse(p['sub_clase_id']?.toString() ?? '');
+        if (pId != _subClaseIdFiltro && p['sub_clase'] != _subClaseFiltro) return false;
+      } else if (_subClaseIdsFiltro != null && _subClaseIdsFiltro!.isNotEmpty) {
+        final pId = int.tryParse(p['sub_clase_id']?.toString() ?? '');
+        if (pId != null) {
+          if (!_subClaseIdsFiltro!.contains(pId)) return false;
+        } else {
+          if (_claseFiltro != null && p['clase'] != _claseFiltro) return false;
+          if (_catFiltro != null && p['categoria'] != _catFiltro) return false;
+        }
+      } else {
+        if (_catFiltro != null && p['categoria'] != _catFiltro) return false;
+        if (_claseFiltro != null && p['clase'] != _claseFiltro) return false;
+        if (_subClaseFiltro != null && p['sub_clase'] != _subClaseFiltro) return false;
+      }
 
       // Buscador multi-token
       if (tokens.isNotEmpty) {
@@ -688,11 +731,13 @@ class _TablaDetalladaInventarioScreenState
 
           // ── Filtros de Jerarquía ─────────────────────────────────────────
           FiltrosJerarquiaWidget(
-            onFiltrosCambiados: (cat, clase, sub) {
+            onFiltrosCambiados: (cat, clase, sub, subId, subIds) {
               setState(() {
                 _catFiltro = cat;
                 _claseFiltro = clase;
                 _subClaseFiltro = sub;
+                _subClaseIdFiltro = subId;
+                _subClaseIdsFiltro = subIds;
               });
               _cargarProductos();
             },

@@ -473,7 +473,7 @@ class _TomaInventarioPageState extends State<TomaInventarioPage> with SingleTick
                     ),
                     const SizedBox(height: 12),
                     FiltrosJerarquiaWidget(
-                      onFiltrosCambiados: (cat, clase, sub) {
+                      onFiltrosCambiados: (cat, clase, sub, subId, subIds) {
                         setState(() {
                           _catSeleccionada = cat;
                           _claseSeleccionada = clase;

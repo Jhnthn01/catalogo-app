@@ -44,6 +44,8 @@ class ProductListWidgetState extends State<ProductListWidget> {
   String? _catFiltro;
   String? _claseFiltro;
   String? _subClaseFiltro;
+  int? _subClaseIdFiltro;
+  List<int>? _subClaseIdsFiltro;
 
   final MobileScannerController _scannerController = MobileScannerController();
 
@@ -117,9 +119,23 @@ class ProductListWidgetState extends State<ProductListWidget> {
         query = query.eq('inventario.tienda_id', -1);
       }
 
-      if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
-      if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
-      if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
+      final idsList = _subClaseIdsFiltro != null && _subClaseIdsFiltro!.isNotEmpty
+          ? _subClaseIdsFiltro!.join(',')
+          : null;
+
+      if (_subClaseIdFiltro != null) {
+        query = query.or('sub_clase_id.eq.$_subClaseIdFiltro,sub_clase.eq.$_subClaseFiltro');
+      } else if (idsList != null) {
+        if (_claseFiltro != null) {
+          query = query.or('sub_clase_id.in.($idsList),clase.eq.$_claseFiltro');
+        } else if (_catFiltro != null) {
+          query = query.or('sub_clase_id.in.($idsList),categoria.eq.$_catFiltro');
+        }
+      } else {
+        if (_catFiltro != null) query = query.eq('categoria', _catFiltro!);
+        if (_claseFiltro != null) query = query.eq('clase', _claseFiltro!);
+        if (_subClaseFiltro != null) query = query.eq('sub_clase', _subClaseFiltro!);
+      }
 
       final q = _searchQuery.trim();
       final List<String> tokens = q.isEmpty
@@ -347,10 +363,12 @@ class ProductListWidgetState extends State<ProductListWidget> {
                 // Hierarchy filters
                 SliverToBoxAdapter(
                   child: FiltrosJerarquiaWidget(
-                    onFiltrosCambiados: (cat, clase, sub) {
+                    onFiltrosCambiados: (cat, clase, sub, subId, subIds) {
                       _catFiltro = cat;
                       _claseFiltro = clase;
                       _subClaseFiltro = sub;
+                      _subClaseIdFiltro = subId;
+                      _subClaseIdsFiltro = subIds;
                       _fetchProductos(refresh: true);
                     },
                   ),

@@ -6,7 +6,7 @@ class ProductoService {
 
   /// String con TODOS los campos de la tabla public.productos
   static const String selectFieldsComplete =
-      'id, sku, upc, alu, marca, categoria, clase, sub_clase, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, fecha_ultimo_costo, costo_medio';
+      'id, sku, upc, alu, marca, categoria, clase, sub_clase, sub_clase_id, estilo, descripcion_1, descripcion_2, color, costo, precio_venta, ultimo_costo, fecha_ultimo_costo, costo_medio';
 
   /// Obtiene lista de productos mapeados con datos completos
   Future<List<ProductoModel>> fetchProductos({

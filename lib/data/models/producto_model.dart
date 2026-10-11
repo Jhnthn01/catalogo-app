@@ -7,6 +7,7 @@ class ProductoModel {
   final String? categoria;
   final String? clase;
   final String? subClase;
+  final int? subClaseId;
   final String? estilo;
   final String? descripcion1;
   final String? descripcion2;
@@ -27,6 +28,7 @@ class ProductoModel {
     this.categoria,
     this.clase,
     this.subClase,
+    this.subClaseId,
     this.estilo,
     this.descripcion1,
     this.descripcion2,
@@ -80,6 +82,7 @@ class ProductoModel {
       categoria: json['categoria']?.toString(),
       clase: json['clase']?.toString(),
       subClase: json['sub_clase']?.toString(),
+      subClaseId: json['sub_clase_id'] != null ? int.tryParse(json['sub_clase_id'].toString()) : null,
       estilo: json['estilo']?.toString(),
       descripcion1: json['descripcion_1']?.toString(),
       descripcion2: json['descripcion_2']?.toString(),
@@ -103,6 +106,7 @@ class ProductoModel {
       'categoria': categoria,
       'clase': clase,
       'sub_clase': subClase,
+      if (subClaseId != null) 'sub_clase_id': subClaseId,
       'estilo': estilo,
       'descripcion_1': descripcion1,
       'descripcion_2': descripcion2,
